@@ -1,19 +1,19 @@
-use std::{iter, sync::Arc};
-
+use camera::Camera;
 use pollster::FutureExt;
+use std::{iter, sync::Arc};
 use util::DeviceExt;
+use wgpu::*;
 use winit::{
     application::ApplicationHandler,
-    dpi::PhysicalSize,
+    dpi::{PhysicalPosition, PhysicalSize},
     event::*,
     event_loop::{ActiveEventLoop, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowAttributes},
 };
 
-use wgpu::*;
-
 mod basic_config;
+mod camera;
 mod control;
 mod texture;
 
@@ -45,6 +45,28 @@ const VERTICES: &[Vertex] = &[
 ];
 
 const INDICES: &[u16] = &[0, 1, 2, 1, 3, 2];
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct CameraUniform {
+    view_proj: [[f32; 4]; 4],
+    view_position: [f32; 4],
+}
+
+impl CameraUniform {
+    fn new() -> Self {
+        use cgmath::SquareMatrix;
+        Self {
+            view_position: [0.0; 4],
+            view_proj: cgmath::Matrix4::identity().into(),
+        }
+    }
+
+    fn update_view_proj(&mut self, camera: &camera::Camera, projection: &camera::Projection) {
+        self.view_position = camera.position.to_homogeneous().into();
+        self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into();
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -83,13 +105,84 @@ struct State {
     num_indices: u32,
     diffuse_texture: texture::Texture,
     diffuse_bind_group: BindGroup,
+
+    //摄像机相关
+    camera: camera::Camera,
+    projection: camera::Projection,
+    camera_uniform: CameraUniform,
+    camera_buffer: Buffer,
+    camera_bind_group: BindGroup,
+    camera_controller: camera::CameraController,
+
+    dt: f64,
+    last_render_time: instant::Instant,
 }
 
 impl State {
     async fn new(window: Window) -> Self {
         let window = Arc::new(window);
 
+        let dt: f64 = 0.001;
+        let last_render_time = instant::Instant::now();
+
+        //基础配置
         let basic_config = basic_config::BasicConfig::new(Arc::clone(&window)).await;
+
+        //创建摄像机
+        let camera = camera::Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
+        let projection = camera::Projection::new(
+            basic_config.config.width,
+            basic_config.config.height,
+            cgmath::Deg(45.0),
+            0.1,
+            100.0,
+        );
+        let mut camera_uniform = CameraUniform::new();
+        camera_uniform.update_view_proj(&camera, &projection);
+
+        let camera_buffer =
+            basic_config
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("First camera buffer"),
+                    contents: bytemuck::cast_slice(&[camera_uniform]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+
+        let camera_bind_group_layout =
+            basic_config
+                .device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("camera bind group layout"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+
+        let camera_bind_group = basic_config
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("camera bind group"),
+                layout: &camera_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                }],
+            });
+
+        let camera_controller = camera::CameraController::new(
+            1.0,
+            basic_config.config.width / 2,
+            basic_config.config.height / 2,
+        );
+        //摄像机创建完成
 
         //开始创建diffuse_bind_group
         let diffuse_bytes = include_bytes!("../res/container.png");
@@ -176,7 +269,7 @@ impl State {
                 .device
                 .create_pipeline_layout(&PipelineLayoutDescriptor {
                     label: Some("First render pipeline layout"),
-                    bind_group_layouts: &[&texture_bind_group_layout],
+                    bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
                     push_constant_ranges: &[],
                 });
 
@@ -231,10 +324,20 @@ impl State {
             num_indices,
             diffuse_texture,
             diffuse_bind_group,
+
+            camera,
+            projection,
+            camera_uniform,
+            camera_buffer,
+            camera_bind_group,
+            camera_controller,
+
+            dt,
+            last_render_time,
         }
     }
 
-    fn resize(&mut self, new_size: PhysicalSize<u32>) {
+    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.basic_config.size = new_size;
             self.basic_config.config.width = new_size.width;
@@ -242,14 +345,42 @@ impl State {
             self.basic_config
                 .surface
                 .configure(&self.basic_config.device, &self.basic_config.config);
+            self.camera_controller.center_x = new_size.width / 2;
+            self.camera_controller.center_y = new_size.height / 2;
+            self.projection.resize(new_size.width, new_size.height);
+            //self.depth_texture =
+            //    texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
         }
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
-        false
+        if self.camera_controller.is_fov {
+            self.window
+                .as_ref()
+                .set_cursor_position(PhysicalPosition::new(
+                    self.camera_controller.center_x,
+                    self.camera_controller.center_y,
+                ))
+                .unwrap();
+        }
+        self.camera_controller
+            .process_events(event, &mut self.camera, self.dt as f32)
     }
 
-    fn update(&mut self) {}
+    fn update(&mut self) {
+        self.dt = (instant::Instant::now() - self.last_render_time).as_secs_f64();
+        self.last_render_time = instant::Instant::now();
+
+        self.camera_controller
+            .update_camera(&mut self.camera, self.dt as f32);
+        self.camera_uniform
+            .update_view_proj(&self.camera, &self.projection);
+        self.basic_config.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&[self.camera_uniform]),
+        );
+    }
 
     fn render(&mut self) -> Result<(), SurfaceError> {
         let output = self.basic_config.surface.get_current_texture()?;
@@ -283,6 +414,7 @@ impl State {
 
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);

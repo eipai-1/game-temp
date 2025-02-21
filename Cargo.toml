@@ -18,7 +18,13 @@ pollster = "0.3"
 
 bytemuck = {version = "1.16", features = ["derive"]}
 
+# ???
 anyhow = "1.0"
+
+# 数学运算库
+cgmath = "0.18"
+
+instant = "0.1"
 
 # 读取图像
 [dependencies.image]
