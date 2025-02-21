@@ -1,0 +1,14 @@
+[package]
+name = "game-temp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# 窗口库
+winit = { version = "0.30", features = ["rwh_05"] }
+
+# 给wgpu报错提供信息
+env_logger = "0.10"
+log = "0.4"
+
+wgpu = "24.0"
