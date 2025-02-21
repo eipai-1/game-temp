@@ -1,4 +1,3 @@
-use camera::Camera;
 use pollster::FutureExt;
 use std::{iter, sync::Arc};
 use util::DeviceExt;
@@ -16,35 +15,129 @@ mod basic_config;
 mod camera;
 mod control;
 mod texture;
+const TEXT_FRAC: f32 = 16.0 / 512.0;
 
 const VERTICES: &[Vertex] = &[
+    //方块坐标：其中每条边都从原点向每个轴的正方向延伸一格
+
+    //正面---正常从正面看
+    //后面统一按以下顺序
+    //正面左上角
     Vertex {
-        //右上
-        position: [0.5, 0.5, 0.0],
-        //color: [1.0, 0.0, 0.0],
-        tex_coords: [1.0, 0.0],
+        position: [0.0, 1.0, 1.0],
+        tex_coords: [0.0, 0.0],
     },
+    //正面右上角
     Vertex {
-        //右下
-        position: [0.5, -0.5, 0.0],
-        //color: [0.0, 1.0, 0.0],
-        tex_coords: [1.0, 1.0],
+        position: [1.0, 1.0, 1.0],
+        tex_coords: [TEXT_FRAC, 0.0],
     },
+    //正面右下角
     Vertex {
-        //左上
-        position: [-0.5, 0.5, 0.0],
-        //color: [0.0, 0.0, 1.0],
+        position: [1.0, 0.0, 1.0],
+        tex_coords: [TEXT_FRAC, TEXT_FRAC],
+    },
+    //正面左下角
+    Vertex {
+        position: [0.0, 0.0, 1.0],
+        tex_coords: [0.0, TEXT_FRAC],
+    },
+    //上面---从上面看---摄像机上方向为z轴负方向
+    Vertex {
+        position: [0.0, 1.0, 0.0],
         tex_coords: [0.0, 0.0],
     },
     Vertex {
-        //左下
-        position: [-0.5, -0.5, 0.0],
-        //color: [1.0, 1.0, 0.0],
-        tex_coords: [0.0, 1.0],
+        position: [1.0, 1.0, 0.0],
+        tex_coords: [TEXT_FRAC, 0.0],
+    },
+    Vertex {
+        position: [1.0, 1.0, 1.0],
+        tex_coords: [TEXT_FRAC, TEXT_FRAC],
+    },
+    Vertex {
+        position: [0.0, 1.0, 1.0],
+        tex_coords: [0.0, TEXT_FRAC],
+    },
+    //后面---摄像机上方向为y轴正方向
+    Vertex {
+        position: [1.0, 1.0, 0.0],
+        tex_coords: [0.0, 0.0],
+    },
+    Vertex {
+        position: [0.0, 1.0, 0.0],
+        tex_coords: [TEXT_FRAC, 0.0],
+    },
+    Vertex {
+        position: [0.0, 0.0, 0.0],
+        tex_coords: [TEXT_FRAC, TEXT_FRAC],
+    },
+    Vertex {
+        position: [1.0, 0.0, 0.0],
+        tex_coords: [0.0, TEXT_FRAC],
+    },
+    //下面--摄像机正方向为y轴正方向
+    Vertex {
+        position: [0.0, 0.0, 1.0],
+        tex_coords: [0.0, 0.0],
+    },
+    Vertex {
+        position: [1.0, 0.0, 1.0],
+        tex_coords: [TEXT_FRAC, 0.0],
+    },
+    Vertex {
+        position: [1.0, 0.0, 0.0],
+        tex_coords: [TEXT_FRAC, TEXT_FRAC],
+    },
+    Vertex {
+        position: [0.0, 0.0, 0.0],
+        tex_coords: [0.0, TEXT_FRAC],
+    },
+    //左面--摄像机上方向y轴正向
+    Vertex {
+        position: [0.0, 1.0, 0.0],
+        tex_coords: [0.0, 0.0],
+    },
+    Vertex {
+        position: [0.0, 1.0, 1.0],
+        tex_coords: [TEXT_FRAC, 0.0],
+    },
+    Vertex {
+        position: [0.0, 0.0, 1.0],
+        tex_coords: [TEXT_FRAC, TEXT_FRAC],
+    },
+    Vertex {
+        position: [0.0, 0.0, 0.0],
+        tex_coords: [0.0, TEXT_FRAC],
+    },
+    //右面--摄像机上方向y轴正向
+    Vertex {
+        position: [1.0, 1.0, 1.0],
+        tex_coords: [0.0, 0.0],
+    },
+    Vertex {
+        position: [1.0, 1.0, 0.0],
+        tex_coords: [TEXT_FRAC, 0.0],
+    },
+    Vertex {
+        position: [1.0, 0.0, 0.0],
+        tex_coords: [TEXT_FRAC, TEXT_FRAC],
+    },
+    Vertex {
+        position: [1.0, 0.0, 1.0],
+        tex_coords: [0.0, TEXT_FRAC],
     },
 ];
 
-const INDICES: &[u16] = &[0, 1, 2, 1, 3, 2];
+#[rustfmt::skip]
+const INDICES: &[u16] = &[
+    0,  1,  2,  0,  2,  3, /* 之后每个加4就行 */ 
+    4,  5,  6,  4,  6,  7,
+    8,  9,  10, 8,  10, 11,
+    12, 13, 14, 12, 14, 15,
+    16, 17, 18, 16, 18, 19,
+    20, 21, 22, 20, 22, 23,
+];
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -116,6 +209,8 @@ struct State {
 
     dt: f64,
     last_render_time: instant::Instant,
+
+    depth_texture: texture::Texture,
 }
 
 impl State {
@@ -127,6 +222,12 @@ impl State {
 
         //基础配置
         let basic_config = basic_config::BasicConfig::new(Arc::clone(&window)).await;
+
+        let depth_texture = texture::Texture::create_depth_texture(
+            &basic_config.device,
+            &basic_config.config,
+            "Depth texture",
+        );
 
         //创建摄像机
         let camera = camera::Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
@@ -185,7 +286,7 @@ impl State {
         //摄像机创建完成
 
         //开始创建diffuse_bind_group
-        let diffuse_bytes = include_bytes!("../res/container.png");
+        let diffuse_bytes = include_bytes!("../res/tile_map.png");
         let diffuse_texture = texture::Texture::from_bytes(
             &basic_config.device,
             &basic_config.queue,
@@ -294,7 +395,13 @@ impl State {
                         polygon_mode: PolygonMode::Fill,
                         conservative: false,
                     },
-                    depth_stencil: None,
+                    depth_stencil: Some(wgpu::DepthStencilState {
+                        format: texture::Texture::DEPTH_FORMAT,
+                        depth_write_enabled: true,
+                        depth_compare: wgpu::CompareFunction::Less,
+                        stencil: wgpu::StencilState::default(),
+                        bias: wgpu::DepthBiasState::default(),
+                    }),
                     multisample: MultisampleState {
                         count: 1,
                         mask: !0,
@@ -334,6 +441,8 @@ impl State {
 
             dt,
             last_render_time,
+
+            depth_texture,
         }
     }
 
@@ -348,8 +457,11 @@ impl State {
             self.camera_controller.center_x = new_size.width / 2;
             self.camera_controller.center_y = new_size.height / 2;
             self.projection.resize(new_size.width, new_size.height);
-            //self.depth_texture =
-            //    texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+            self.depth_texture = texture::Texture::create_depth_texture(
+                &self.basic_config.device,
+                &self.basic_config.config,
+                "depth_texture",
+            );
         }
     }
 
@@ -407,7 +519,14 @@ impl State {
                         store: StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
