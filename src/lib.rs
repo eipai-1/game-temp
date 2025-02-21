@@ -1,6 +1,7 @@
 use std::{iter, sync::Arc};
 
 use pollster::FutureExt;
+use util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -14,11 +15,74 @@ use wgpu::*;
 
 mod basic_config;
 mod control;
+mod texture;
+
+const VERTICES: &[Vertex] = &[
+    Vertex {
+        //右上
+        position: [0.5, 0.5, 0.0],
+        //color: [1.0, 0.0, 0.0],
+        tex_coords: [1.0, 0.0],
+    },
+    Vertex {
+        //右下
+        position: [0.5, -0.5, 0.0],
+        //color: [0.0, 1.0, 0.0],
+        tex_coords: [1.0, 1.0],
+    },
+    Vertex {
+        //左上
+        position: [-0.5, 0.5, 0.0],
+        //color: [0.0, 0.0, 1.0],
+        tex_coords: [0.0, 0.0],
+    },
+    Vertex {
+        //左下
+        position: [-0.5, -0.5, 0.0],
+        //color: [1.0, 1.0, 0.0],
+        tex_coords: [0.0, 1.0],
+    },
+];
+
+const INDICES: &[u16] = &[0, 1, 2, 1, 3, 2];
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 3],
+    tex_coords: [f32; 2],
+}
+
+impl Vertex {
+    fn desc() -> VertexBufferLayout<'static> {
+        VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vertex>() as BufferAddress,
+            step_mode: VertexStepMode::Vertex,
+            attributes: &[
+                VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: VertexFormat::Float32x3,
+                },
+                VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as BufferAddress,
+                    shader_location: 1,
+                    format: VertexFormat::Float32x2,
+                },
+            ],
+        }
+    }
+}
 
 struct State {
     basic_config: basic_config::BasicConfig,
     window: Arc<Window>,
     render_pipeline: RenderPipeline,
+    vertex_buffer: Buffer,
+    index_buffer: Buffer,
+    num_indices: u32,
+    diffuse_texture: texture::Texture,
+    diffuse_bind_group: BindGroup,
 }
 
 impl State {
@@ -27,69 +91,146 @@ impl State {
 
         let basic_config = basic_config::BasicConfig::new(Arc::clone(&window)).await;
 
-        //以下是创建 shader
+        //开始创建diffuse_bind_group
+        let diffuse_bytes = include_bytes!("../res/container.png");
+        let diffuse_texture = texture::Texture::from_bytes(
+            &basic_config.device,
+            &basic_config.queue,
+            diffuse_bytes,
+            "tile_map",
+        )
+        .unwrap();
+
+        let texture_bind_group_layout =
+            basic_config
+                .device
+                .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                    label: Some("Texture bind group layout"),
+                    entries: &[
+                        BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: ShaderStages::FRAGMENT,
+                            ty: BindingType::Texture {
+                                sample_type: TextureSampleType::Float { filterable: true },
+                                view_dimension: TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: ShaderStages::FRAGMENT,
+                            ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                    ],
+                });
+
+        let diffuse_bind_group =
+            basic_config
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("First diffuse bind group"),
+                    layout: &texture_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                        },
+                    ],
+                });
+        //创建diffuse_bind_group完成
+
+        //以下是创建 render_pipeline 和 buffer
         let shader = basic_config
             .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
+            .create_shader_module(ShaderModuleDescriptor {
                 label: Some("First Shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+                source: ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
             });
+
+        let vertex_buffer = basic_config
+            .device
+            .create_buffer_init(&util::BufferInitDescriptor {
+                label: Some("Vertex buffer"),
+                contents: bytemuck::cast_slice(VERTICES),
+                usage: BufferUsages::VERTEX,
+            });
+
+        let index_buffer = basic_config
+            .device
+            .create_buffer_init(&util::BufferInitDescriptor {
+                label: Some("Index buffer"),
+                contents: bytemuck::cast_slice(INDICES),
+                usage: BufferUsages::INDEX,
+            });
+
+        let num_indices = INDICES.len() as u32;
 
         let render_pipeline_layout =
             basic_config
                 .device
-                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                .create_pipeline_layout(&PipelineLayoutDescriptor {
                     label: Some("First render pipeline layout"),
-                    bind_group_layouts: &[],
+                    bind_group_layouts: &[&texture_bind_group_layout],
                     push_constant_ranges: &[],
                 });
 
         let render_pipeline =
             basic_config
                 .device
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                .create_render_pipeline(&RenderPipelineDescriptor {
                     label: Some("First render pipeline"),
                     layout: Some(&render_pipeline_layout),
-                    vertex: wgpu::VertexState {
+                    vertex: VertexState {
                         module: &shader,
                         entry_point: Some("vs_main"),
-                        buffers: &[],
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        buffers: &[Vertex::desc()],
+                        compilation_options: PipelineCompilationOptions::default(),
                     },
-                    primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::TriangleList,
+                    primitive: PrimitiveState {
+                        topology: PrimitiveTopology::TriangleList,
                         strip_index_format: None,
-                        front_face: wgpu::FrontFace::Ccw,
-                        cull_mode: Some(wgpu::Face::Back),
+                        front_face: FrontFace::Cw,
+                        cull_mode: Some(Face::Back),
                         unclipped_depth: false,
-                        polygon_mode: wgpu::PolygonMode::Fill,
+                        polygon_mode: PolygonMode::Fill,
                         conservative: false,
                     },
                     depth_stencil: None,
-                    multisample: wgpu::MultisampleState {
+                    multisample: MultisampleState {
                         count: 1,
                         mask: !0,
                         alpha_to_coverage_enabled: false,
                     },
-                    fragment: Some(wgpu::FragmentState {
+                    fragment: Some(FragmentState {
                         module: &shader,
                         entry_point: Some("fs_main"),
-                        targets: &[Some(wgpu::ColorTargetState {
+                        targets: &[Some(ColorTargetState {
                             format: basic_config.config.format,
-                            blend: Some(wgpu::BlendState::REPLACE),
-                            write_mask: wgpu::ColorWrites::ALL,
+                            blend: Some(BlendState::REPLACE),
+                            write_mask: ColorWrites::ALL,
                         })],
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        compilation_options: PipelineCompilationOptions::default(),
                     }),
                     multiview: None,
                     cache: None,
                 });
-        //创建shader完成
+        //render_pipeline和buffer创建完成
 
         Self {
             basic_config,
             window,
             render_pipeline,
+            vertex_buffer,
+            index_buffer,
+            num_indices,
+            diffuse_texture,
+            diffuse_bind_group,
         }
     }
 
@@ -110,29 +251,29 @@ impl State {
 
     fn update(&mut self) {}
 
-    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    fn render(&mut self) -> Result<(), SurfaceError> {
         let output = self.basic_config.surface.get_current_texture()?;
         let view = output
             .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+            .create_view(&TextureViewDescriptor::default());
 
         let mut encoder =
             self.basic_config
                 .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                .create_command_encoder(&CommandEncoderDescriptor {
                     label: Some("Render Encoder"),
                 });
 
         //这个大括号是必须的
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                color_attachments: &[Some(RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(self.basic_config.clear_color),
-                        store: wgpu::StoreOp::Store,
+                    ops: Operations {
+                        load: LoadOp::Clear(self.basic_config.clear_color),
+                        store: StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
@@ -141,7 +282,10 @@ impl State {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.draw(0..3, 0..1);
+            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         }
 
         self.basic_config.queue.submit(iter::once(encoder.finish()));
@@ -204,23 +348,23 @@ impl ApplicationHandler for App {
                     match state.render() {
                         Ok(_) => {}
                         // Reconfigure the surface if it's lost or outdated
-                        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                        Err(SurfaceError::Lost | SurfaceError::Outdated) => {
                             state.resize(state.basic_config.size)
                         }
                         // The system is out of memory, we should probably quit
-                        Err(wgpu::SurfaceError::OutOfMemory) => {
+                        Err(SurfaceError::OutOfMemory) => {
                             log::error!("OutOfMemory");
                             event_loop.exit();
                         }
 
                         // This happens when the a frame takes too long to present
-                        Err(wgpu::SurfaceError::Timeout) => {
+                        Err(SurfaceError::Timeout) => {
                             log::warn!("Surface timeout")
                         }
 
                         //wgpu-new
                         //新版wgpu新增的
-                        Err(wgpu::SurfaceError::Other) => {
+                        Err(SurfaceError::Other) => {
                             log::warn!("Surface error: other")
                         }
                     }
