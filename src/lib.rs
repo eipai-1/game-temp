@@ -11,6 +11,7 @@ use winit::{
 };
 
 mod basic_config;
+mod control;
 
 struct State {
     basic_config: basic_config::BasicConfig,
@@ -37,6 +38,21 @@ impl State {
             self.basic_config
                 .surface
                 .configure(&self.basic_config.device, &self.basic_config.config);
+        }
+    }
+
+    fn input(&mut self, event: &WindowEvent) -> bool {
+        match event {
+            WindowEvent::CursorMoved { position, .. } => {
+                self.basic_config.clear_color = wgpu::Color {
+                    r: position.x / self.basic_config.size.width as f64,
+                    g: position.y / self.basic_config.size.height as f64,
+                    b: 1.0,
+                    a: 1.0,
+                };
+                true
+            }
+            _ => false,
         }
     }
 
@@ -109,6 +125,13 @@ impl ApplicationHandler for App {
         _window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
+        if let Some(state) = self.state.as_mut() {
+            //如果为真则代表为输入事件，且此方法会处理输入事件。此时则完成处理，不需要在继续处理
+            //否则继续处理
+            if state.input(&event) {
+                return;
+            }
+        }
         match event {
             WindowEvent::CloseRequested
             | WindowEvent::KeyboardInput {
@@ -146,6 +169,7 @@ impl ApplicationHandler for App {
                             log::warn!("Surface error: other")
                         }
                     }
+                    //循环调用从而不断重绘
                     state.window.request_redraw();
                 }
             }
