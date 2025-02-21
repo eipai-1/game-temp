@@ -10,12 +10,15 @@ use winit::{
     window::{Window, WindowAttributes},
 };
 
+use wgpu::*;
+
 mod basic_config;
 mod control;
 
 struct State {
     basic_config: basic_config::BasicConfig,
     window: Arc<Window>,
+    render_pipeline: RenderPipeline,
 }
 
 impl State {
@@ -24,9 +27,69 @@ impl State {
 
         let basic_config = basic_config::BasicConfig::new(Arc::clone(&window)).await;
 
+        //以下是创建 shader
+        let shader = basic_config
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("First Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            });
+
+        let render_pipeline_layout =
+            basic_config
+                .device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("First render pipeline layout"),
+                    bind_group_layouts: &[],
+                    push_constant_ranges: &[],
+                });
+
+        let render_pipeline =
+            basic_config
+                .device
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("First render pipeline"),
+                    layout: Some(&render_pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some("vs_main"),
+                        buffers: &[],
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    },
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        strip_index_format: None,
+                        front_face: wgpu::FrontFace::Ccw,
+                        cull_mode: Some(wgpu::Face::Back),
+                        unclipped_depth: false,
+                        polygon_mode: wgpu::PolygonMode::Fill,
+                        conservative: false,
+                    },
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState {
+                        count: 1,
+                        mask: !0,
+                        alpha_to_coverage_enabled: false,
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some("fs_main"),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: basic_config.config.format,
+                            blend: Some(wgpu::BlendState::REPLACE),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    }),
+                    multiview: None,
+                    cache: None,
+                });
+        //创建shader完成
+
         Self {
             basic_config,
             window,
+            render_pipeline,
         }
     }
 
@@ -42,18 +105,7 @@ impl State {
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
-        match event {
-            WindowEvent::CursorMoved { position, .. } => {
-                self.basic_config.clear_color = wgpu::Color {
-                    r: position.x / self.basic_config.size.width as f64,
-                    g: position.y / self.basic_config.size.height as f64,
-                    b: 1.0,
-                    a: 1.0,
-                };
-                true
-            }
-            _ => false,
-        }
+        false
     }
 
     fn update(&mut self) {}
@@ -73,7 +125,7 @@ impl State {
 
         //这个大括号是必须的
         {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -87,6 +139,9 @@ impl State {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.draw(0..3, 0..1);
         }
 
         self.basic_config.queue.submit(iter::once(encoder.finish()));
