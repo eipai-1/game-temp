@@ -1,3 +1,7 @@
+struct InstanceInput {
+    @location(5) position: vec3<f32>,
+}
+
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) tex_coords: vec2<f32>,
@@ -18,13 +22,15 @@ var<uniform> camera: CameraUniform;
 //标记为vertex shader
 @vertex
 fn vs_main(
-    model: VertexInput
+    model: VertexInput,
+    instacne: InstanceInput,
 ) -> VertexOutput {
     //var：可变   需要声明类型
     //let：不可变 可以推断类型
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
-    out.clip_position = camera.view_proj * vec4<f32>(model.position, 1.0);
+    let world_position = model.position + instacne.position;
+    out.clip_position = camera.view_proj * vec4<f32>(world_position, 1.0);
 
     return out;
 }

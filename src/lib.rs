@@ -14,130 +14,8 @@ use winit::{
 mod basic_config;
 mod camera;
 mod control;
+mod realm;
 mod texture;
-const TEXT_FRAC: f32 = 16.0 / 512.0;
-
-const VERTICES: &[Vertex] = &[
-    //方块坐标：其中每条边都从原点向每个轴的正方向延伸一格
-
-    //正面---正常从正面看
-    //后面统一按以下顺序
-    //正面左上角
-    Vertex {
-        position: [0.0, 1.0, 1.0],
-        tex_coords: [0.0, 0.0],
-    },
-    //正面右上角
-    Vertex {
-        position: [1.0, 1.0, 1.0],
-        tex_coords: [TEXT_FRAC, 0.0],
-    },
-    //正面右下角
-    Vertex {
-        position: [1.0, 0.0, 1.0],
-        tex_coords: [TEXT_FRAC, TEXT_FRAC],
-    },
-    //正面左下角
-    Vertex {
-        position: [0.0, 0.0, 1.0],
-        tex_coords: [0.0, TEXT_FRAC],
-    },
-    //上面---从上面看---摄像机上方向为z轴负方向
-    Vertex {
-        position: [0.0, 1.0, 0.0],
-        tex_coords: [0.0, 0.0],
-    },
-    Vertex {
-        position: [1.0, 1.0, 0.0],
-        tex_coords: [TEXT_FRAC, 0.0],
-    },
-    Vertex {
-        position: [1.0, 1.0, 1.0],
-        tex_coords: [TEXT_FRAC, TEXT_FRAC],
-    },
-    Vertex {
-        position: [0.0, 1.0, 1.0],
-        tex_coords: [0.0, TEXT_FRAC],
-    },
-    //后面---摄像机上方向为y轴正方向
-    Vertex {
-        position: [1.0, 1.0, 0.0],
-        tex_coords: [0.0, 0.0],
-    },
-    Vertex {
-        position: [0.0, 1.0, 0.0],
-        tex_coords: [TEXT_FRAC, 0.0],
-    },
-    Vertex {
-        position: [0.0, 0.0, 0.0],
-        tex_coords: [TEXT_FRAC, TEXT_FRAC],
-    },
-    Vertex {
-        position: [1.0, 0.0, 0.0],
-        tex_coords: [0.0, TEXT_FRAC],
-    },
-    //下面--摄像机正方向为y轴正方向
-    Vertex {
-        position: [0.0, 0.0, 1.0],
-        tex_coords: [0.0, 0.0],
-    },
-    Vertex {
-        position: [1.0, 0.0, 1.0],
-        tex_coords: [TEXT_FRAC, 0.0],
-    },
-    Vertex {
-        position: [1.0, 0.0, 0.0],
-        tex_coords: [TEXT_FRAC, TEXT_FRAC],
-    },
-    Vertex {
-        position: [0.0, 0.0, 0.0],
-        tex_coords: [0.0, TEXT_FRAC],
-    },
-    //左面--摄像机上方向y轴正向
-    Vertex {
-        position: [0.0, 1.0, 0.0],
-        tex_coords: [0.0, 0.0],
-    },
-    Vertex {
-        position: [0.0, 1.0, 1.0],
-        tex_coords: [TEXT_FRAC, 0.0],
-    },
-    Vertex {
-        position: [0.0, 0.0, 1.0],
-        tex_coords: [TEXT_FRAC, TEXT_FRAC],
-    },
-    Vertex {
-        position: [0.0, 0.0, 0.0],
-        tex_coords: [0.0, TEXT_FRAC],
-    },
-    //右面--摄像机上方向y轴正向
-    Vertex {
-        position: [1.0, 1.0, 1.0],
-        tex_coords: [0.0, 0.0],
-    },
-    Vertex {
-        position: [1.0, 1.0, 0.0],
-        tex_coords: [TEXT_FRAC, 0.0],
-    },
-    Vertex {
-        position: [1.0, 0.0, 0.0],
-        tex_coords: [TEXT_FRAC, TEXT_FRAC],
-    },
-    Vertex {
-        position: [1.0, 0.0, 1.0],
-        tex_coords: [0.0, TEXT_FRAC],
-    },
-];
-
-#[rustfmt::skip]
-const INDICES: &[u16] = &[
-    0,  1,  2,  0,  2,  3, /* 之后每个加4就行 */ 
-    4,  5,  6,  4,  6,  7,
-    8,  9,  10, 8,  10, 11,
-    12, 13, 14, 12, 14, 15,
-    16, 17, 18, 16, 18, 19,
-    20, 21, 22, 20, 22, 23,
-];
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -161,34 +39,6 @@ impl CameraUniform {
     }
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    tex_coords: [f32; 2],
-}
-
-impl Vertex {
-    fn desc() -> VertexBufferLayout<'static> {
-        VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as BufferAddress,
-            step_mode: VertexStepMode::Vertex,
-            attributes: &[
-                VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: VertexFormat::Float32x3,
-                },
-                VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as BufferAddress,
-                    shader_location: 1,
-                    format: VertexFormat::Float32x2,
-                },
-            ],
-        }
-    }
-}
-
 struct State {
     basic_config: basic_config::BasicConfig,
     window: Arc<Window>,
@@ -196,7 +46,9 @@ struct State {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
     num_indices: u32,
-    diffuse_texture: texture::Texture,
+
+    //好像没用？
+    //diffuse_texture: texture::Texture,
     diffuse_bind_group: BindGroup,
 
     //摄像机相关
@@ -211,6 +63,8 @@ struct State {
     last_render_time: instant::Instant,
 
     depth_texture: texture::Texture,
+
+    realm: realm::Realm,
 }
 
 impl State {
@@ -228,6 +82,8 @@ impl State {
             &basic_config.config,
             "Depth texture",
         );
+
+        let realm = realm::Realm::new(&basic_config.device);
 
         //创建摄像机
         let camera = camera::Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
@@ -351,7 +207,7 @@ impl State {
             .device
             .create_buffer_init(&util::BufferInitDescriptor {
                 label: Some("Vertex buffer"),
-                contents: bytemuck::cast_slice(VERTICES),
+                contents: bytemuck::cast_slice(realm::VERTICES),
                 usage: BufferUsages::VERTEX,
             });
 
@@ -359,11 +215,11 @@ impl State {
             .device
             .create_buffer_init(&util::BufferInitDescriptor {
                 label: Some("Index buffer"),
-                contents: bytemuck::cast_slice(INDICES),
+                contents: bytemuck::cast_slice(realm::INDICES),
                 usage: BufferUsages::INDEX,
             });
 
-        let num_indices = INDICES.len() as u32;
+        let num_indices = realm::INDICES.len() as u32;
 
         let render_pipeline_layout =
             basic_config
@@ -383,7 +239,7 @@ impl State {
                     vertex: VertexState {
                         module: &shader,
                         entry_point: Some("vs_main"),
-                        buffers: &[Vertex::desc()],
+                        buffers: &[realm::Vertex::desc(), realm::Instance::desc()],
                         compilation_options: PipelineCompilationOptions::default(),
                     },
                     primitive: PrimitiveState {
@@ -429,7 +285,7 @@ impl State {
             vertex_buffer,
             index_buffer,
             num_indices,
-            diffuse_texture,
+            //diffuse_texture,
             diffuse_bind_group,
 
             camera,
@@ -443,6 +299,8 @@ impl State {
             last_render_time,
 
             depth_texture,
+
+            realm,
         }
     }
 
@@ -535,8 +393,9 @@ impl State {
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.realm.instance_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.realm.instances.len() as _);
         }
 
         self.basic_config.queue.submit(iter::once(encoder.finish()));
