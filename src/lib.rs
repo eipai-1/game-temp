@@ -43,7 +43,6 @@ struct State {
     basic_config: basic_config::BasicConfig,
     window: Arc<Window>,
     render_pipeline: RenderPipeline,
-    vertex_buffer: Buffer,
     index_buffer: Buffer,
     num_indices: u32,
 
@@ -203,14 +202,6 @@ impl State {
                 source: ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
             });
 
-        let vertex_buffer = basic_config
-            .device
-            .create_buffer_init(&util::BufferInitDescriptor {
-                label: Some("Vertex buffer"),
-                contents: bytemuck::cast_slice(realm::VERTICES),
-                usage: BufferUsages::VERTEX,
-            });
-
         let index_buffer = basic_config
             .device
             .create_buffer_init(&util::BufferInitDescriptor {
@@ -282,7 +273,6 @@ impl State {
             basic_config,
             window,
             render_pipeline,
-            vertex_buffer,
             index_buffer,
             num_indices,
             //diffuse_texture,
@@ -392,10 +382,12 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.realm.instance_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.realm.instances.len() as _);
+            for block in &self.realm.blocks {
+                render_pass.set_vertex_buffer(0, block.vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, block.instance_buffer.slice(..));
+                render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
+                render_pass.draw_indexed(0..self.num_indices, 0, 0..block.instances.len() as _);
+            }
         }
 
         self.basic_config.queue.submit(iter::once(encoder.finish()));

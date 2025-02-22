@@ -125,6 +125,56 @@ pub const INDICES: &[u16] = &[
 
 const CHUNK_SIZE: u32 = 16;
 
+pub struct Block {
+    pub instances: Vec<Instance>,
+    vertices: [Vertex; 24],
+    pub instance_buffer: Buffer,
+    pub vertex_buffer: Buffer,
+
+    //材质偏移量
+    tex_x: u32,
+    tex_y: u32,
+}
+
+impl Block {
+    fn new(
+        instances: Vec<Instance>,
+        instance_buffer: Buffer,
+        device: &Device,
+        tex_x: u32,
+        tex_y: u32,
+    ) -> Self {
+        let mut vertices: [Vertex; 24] = [Vertex {
+            position: [0.0; 3],
+            tex_coords: [0.0; 2],
+        }; 24];
+
+        for i in 0..24 {
+            vertices[i].tex_coords[0] = VERTICES[i].tex_coords[0] + TEXT_FRAC * tex_x as f32;
+            vertices[i].tex_coords[1] = VERTICES[i].tex_coords[1] + TEXT_FRAC * tex_y as f32;
+
+            vertices[i].position = VERTICES[i].position;
+        }
+
+        //println!("{:#?}", vertices);
+
+        let vertex_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
+            label: Some("block vertex buffer"),
+            contents: bytemuck::cast_slice(&vertices[..]),
+            usage: BufferUsages::VERTEX,
+        });
+
+        Self {
+            instances,
+            instance_buffer,
+            vertex_buffer,
+            vertices,
+            tex_x,
+            tex_y,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
@@ -175,13 +225,14 @@ impl Instance {
 }
 
 pub struct Realm {
-    pub instances: Vec<Instance>,
-    pub instance_buffer: Buffer,
+    pub blocks: Vec<Block>,
 }
 
 impl Realm {
     pub fn new(device: &Device) -> Self {
-        let instances = (0..CHUNK_SIZE)
+        let mut blocks: Vec<Block> = Vec::new();
+
+        let under_stone_instances = (0..CHUNK_SIZE)
             .flat_map(|x| {
                 (0..CHUNK_SIZE).map(move |z| {
                     let position: [f32; 3] = [x as f32, 0.0, z as f32];
@@ -191,15 +242,53 @@ impl Realm {
             })
             .collect::<Vec<_>>();
 
-        let instance_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
-            label: Some("instance buffer"),
-            contents: bytemuck::cast_slice(&instances),
+        let under_stone_instance_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
+            label: Some("under stone instance buffer"),
+            contents: bytemuck::cast_slice(&under_stone_instances),
             usage: BufferUsages::VERTEX,
         });
 
-        Self {
-            instances,
-            instance_buffer,
-        }
+        let under_stone = Block::new(
+            under_stone_instances,
+            under_stone_instance_buffer,
+            device,
+            1,
+            0,
+        );
+        blocks.push(under_stone);
+
+        let mut stone_instances = (0..CHUNK_SIZE)
+            .flat_map(|x| {
+                (0..CHUNK_SIZE).map(move |z| {
+                    let position: [f32; 3] = [x as f32, 1.0, z as f32];
+
+                    Instance { position }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let stone_instances2 = (0..CHUNK_SIZE)
+            .flat_map(|x| {
+                (0..CHUNK_SIZE).map(move |z| {
+                    let position: [f32; 3] = [x as f32, 2.0, z as f32];
+
+                    Instance { position }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        stone_instances.extend(stone_instances2);
+
+        let stone_instance_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
+            label: Some("stone instance buffer"),
+            contents: bytemuck::cast_slice(&stone_instances),
+            usage: BufferUsages::VERTEX,
+        });
+
+        let stone = Block::new(stone_instances, stone_instance_buffer, device, 0, 0);
+
+        blocks.push(stone);
+
+        Self { blocks }
     }
 }
