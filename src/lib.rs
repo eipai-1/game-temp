@@ -134,7 +134,7 @@ impl State {
             });
 
         let camera_controller = camera::CameraController::new(
-            1.0,
+            2.0,
             basic_config.config.width / 2,
             basic_config.config.height / 2,
         );

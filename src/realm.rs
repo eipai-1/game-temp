@@ -130,10 +130,6 @@ pub struct Block {
     vertices: [Vertex; 24],
     pub instance_buffer: Buffer,
     pub vertex_buffer: Buffer,
-
-    //材质偏移量
-    tex_x: u32,
-    tex_y: u32,
 }
 
 impl Block {
@@ -141,19 +137,23 @@ impl Block {
         instances: Vec<Instance>,
         instance_buffer: Buffer,
         device: &Device,
-        tex_x: u32,
-        tex_y: u32,
+
+        //顺序为：正、上、后、下、左、右
+        tex_offset: [[u8; 2]; 6],
     ) -> Self {
         let mut vertices: [Vertex; 24] = [Vertex {
             position: [0.0; 3],
             tex_coords: [0.0; 2],
         }; 24];
 
-        for i in 0..24 {
-            vertices[i].tex_coords[0] = VERTICES[i].tex_coords[0] + TEXT_FRAC * tex_x as f32;
-            vertices[i].tex_coords[1] = VERTICES[i].tex_coords[1] + TEXT_FRAC * tex_y as f32;
-
-            vertices[i].position = VERTICES[i].position;
+        for i in 0..6 {
+            for j in 0..4 {
+                vertices[i * 4 + j].position = VERTICES[i * 4 + j].position;
+                vertices[i * 4 + j].tex_coords[0] =
+                    VERTICES[i * 4 + j].tex_coords[0] + TEXT_FRAC * tex_offset[i][0] as f32;
+                vertices[i * 4 + j].tex_coords[1] =
+                    VERTICES[i * 4 + j].tex_coords[1] + TEXT_FRAC * tex_offset[i][1] as f32;
+            }
         }
 
         //println!("{:#?}", vertices);
@@ -169,8 +169,6 @@ impl Block {
             instance_buffer,
             vertex_buffer,
             vertices,
-            tex_x,
-            tex_y,
         }
     }
 }
@@ -248,15 +246,17 @@ impl Realm {
             usage: BufferUsages::VERTEX,
         });
 
+        let under_stone_tex_offset: [[u8; 2]; 6] = [[1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0]];
+
         let under_stone = Block::new(
             under_stone_instances,
             under_stone_instance_buffer,
             device,
-            1,
-            0,
+            under_stone_tex_offset,
         );
         blocks.push(under_stone);
 
+        //创建岩石
         let mut stone_instances = (0..CHUNK_SIZE)
             .flat_map(|x| {
                 (0..CHUNK_SIZE).map(move |z| {
@@ -285,9 +285,45 @@ impl Realm {
             usage: BufferUsages::VERTEX,
         });
 
-        let stone = Block::new(stone_instances, stone_instance_buffer, device, 0, 0);
+        let stone_tex_offset = [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]];
+
+        let stone = Block::new(
+            stone_instances,
+            stone_instance_buffer,
+            device,
+            stone_tex_offset,
+        );
 
         blocks.push(stone);
+        //岩石创建完成
+
+        //创建草方块
+        let grass_instances = (0..CHUNK_SIZE)
+            .flat_map(|x| {
+                (0..CHUNK_SIZE).map(move |z| {
+                    let position: [f32; 3] = [x as f32, 3.0, z as f32];
+
+                    Instance { position }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let grass_instance_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
+            label: Some("grass instance buffer"),
+            contents: bytemuck::cast_slice(&grass_instances),
+            usage: BufferUsages::VERTEX,
+        });
+
+        let grass_tex_offset = [[3, 0], [2, 0], [3, 0], [4, 0], [3, 0], [3, 0]];
+
+        let grass = Block::new(
+            grass_instances,
+            grass_instance_buffer,
+            device,
+            grass_tex_offset,
+        );
+        blocks.push(grass);
+        //草方块创建完成
 
         Self { blocks }
     }
