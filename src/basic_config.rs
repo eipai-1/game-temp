@@ -38,7 +38,7 @@ impl BasicConfig {
             .request_device(
                 &DeviceDescriptor {
                     label: None,
-                    required_features: Features::empty(),
+                    required_features: Features::POLYGON_MODE_LINE,
                     required_limits: wgpu::Limits::default(),
                     memory_hints: Default::default(),
                 },

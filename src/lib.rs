@@ -64,6 +64,7 @@ struct State {
     depth_texture: texture::Texture,
 
     realm: realm::Realm,
+    wf_render_pipeline: RenderPipeline,
 }
 
 impl State {
@@ -217,7 +218,7 @@ impl State {
                 .device
                 .create_pipeline_layout(&PipelineLayoutDescriptor {
                     label: Some("First render pipeline layout"),
-                    bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
+                    bind_group_layouts: &[&camera_bind_group_layout, &texture_bind_group_layout],
                     push_constant_ranges: &[],
                 });
 
@@ -269,6 +270,62 @@ impl State {
                 });
         //render_pipeline和buffer创建完成
 
+        //线框
+        let wf_shader = basic_config
+            .device
+            .create_shader_module(ShaderModuleDescriptor {
+                label: Some("Wireframe Shader"),
+                source: ShaderSource::Wgsl(include_str!("wf_shader.wgsl").into()),
+            });
+
+        let wf_render_pipeline =
+            basic_config
+                .device
+                .create_render_pipeline(&RenderPipelineDescriptor {
+                    label: Some("Wireframe render pipeline"),
+                    layout: Some(&render_pipeline_layout),
+                    vertex: VertexState {
+                        module: &wf_shader,
+                        entry_point: Some("vs_main"),
+                        buffers: &[realm::WireframeVertex::desc()],
+                        compilation_options: PipelineCompilationOptions::default(),
+                    },
+                    primitive: PrimitiveState {
+                        topology: PrimitiveTopology::LineList,
+                        strip_index_format: None,
+                        front_face: FrontFace::Cw,
+                        cull_mode: Some(Face::Back),
+                        unclipped_depth: false,
+                        polygon_mode: PolygonMode::Line,
+                        conservative: false,
+                    },
+                    depth_stencil: Some(DepthStencilState {
+                        format: texture::Texture::DEPTH_FORMAT,
+                        depth_write_enabled: true,
+                        depth_compare: CompareFunction::Less,
+                        stencil: StencilState::default(),
+                        bias: DepthBiasState::default(),
+                    }),
+                    multisample: MultisampleState {
+                        count: 1,
+                        mask: !0,
+                        alpha_to_coverage_enabled: false,
+                    },
+                    fragment: Some(FragmentState {
+                        module: &wf_shader,
+                        entry_point: Some("fs_main"),
+                        targets: &[Some(ColorTargetState {
+                            format: basic_config.config.format,
+                            blend: Some(BlendState::REPLACE),
+                            write_mask: ColorWrites::ALL,
+                        })],
+                        compilation_options: PipelineCompilationOptions::default(),
+                    }),
+                    multiview: None,
+                    cache: None,
+                });
+        //线框创建完成
+
         Self {
             basic_config,
             window,
@@ -291,6 +348,7 @@ impl State {
             depth_texture,
 
             realm,
+            wf_render_pipeline,
         }
     }
 
@@ -380,14 +438,22 @@ impl State {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
+
             for block in &self.realm.blocks {
                 render_pass.set_vertex_buffer(0, block.vertex_buffer.slice(..));
                 render_pass.set_vertex_buffer(1, block.instance_buffer.slice(..));
                 render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
                 render_pass.draw_indexed(0..self.num_indices, 0, 0..block.instances.len() as _);
             }
+
+            render_pass.set_pipeline(&self.wf_render_pipeline);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.realm.wf_vertex_buffer.slice(..));
+            render_pass.set_index_buffer(self.realm.wf_index_buffer.slice(..), IndexFormat::Uint16);
+            render_pass.draw_indexed(0..realm::WIREFRAME_INDCIES.len() as u32, 0, 0..1);
         }
 
         self.basic_config.queue.submit(iter::once(encoder.finish()));

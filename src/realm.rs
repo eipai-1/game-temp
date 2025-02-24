@@ -1,4 +1,7 @@
-use wgpu::{util::DeviceExt, *};
+use wgpu::{
+    util::{BufferInitDescriptor, DeviceExt},
+    *,
+};
 
 pub const TEXT_FRAC: f32 = 16.0 / 512.0;
 pub const VERTICES: &[Vertex] = &[
@@ -123,11 +126,46 @@ pub const INDICES: &[u16] = &[
     20, 21, 22, 20, 22, 23,
 ];
 
+pub const WIREFRAME_VERTICES: &[WireframeVertex] = &[
+    WireframeVertex {
+        position: [0.0, 1.001, 0.0],
+    },
+    WireframeVertex {
+        position: [1.001, 1.001, 0.0],
+    },
+    WireframeVertex {
+        position: [1.001, 1.001, 1.001],
+    },
+    WireframeVertex {
+        position: [0.0, 1.001, 1.001],
+    },
+    WireframeVertex {
+        position: [0.0, 0.0, 0.0],
+    },
+    WireframeVertex {
+        position: [1.001, 0.0, 0.0],
+    },
+    WireframeVertex {
+        position: [1.001, 0.0, 1.001],
+    },
+    WireframeVertex {
+        position: [0.0, 0.0, 1.001],
+    },
+];
+
+#[rustfmt::skip]
+pub const WIREFRAME_INDCIES: &[u16] = &[
+    0, 1, 1, 2, 2, 3, 3, 0,
+    0, 4, 1, 5, 2, 6, 3, 7,
+    4, 5, 5, 6, 6, 7, 7, 4,
+];
+
 const CHUNK_SIZE: u32 = 16;
 
 pub struct Block {
+    pub name: &'static str,
     pub instances: Vec<Instance>,
-    vertices: [Vertex; 24],
+    //vertices: [Vertex; 24],
     pub instance_buffer: Buffer,
     pub vertex_buffer: Buffer,
 }
@@ -138,6 +176,7 @@ impl Block {
         instance_buffer: Buffer,
         device: &Device,
 
+        name: &'static str,
         //顺序为：正、上、后、下、左、右
         tex_offset: [[u8; 2]; 6],
     ) -> Self {
@@ -168,7 +207,8 @@ impl Block {
             instances,
             instance_buffer,
             vertex_buffer,
-            vertices,
+            name,
+            //vertices,
         }
     }
 }
@@ -202,6 +242,26 @@ impl Vertex {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct WireframeVertex {
+    pub position: [f32; 3],
+}
+
+impl WireframeVertex {
+    pub fn desc() -> VertexBufferLayout<'static> {
+        VertexBufferLayout {
+            array_stride: std::mem::size_of::<WireframeVertex>() as BufferAddress,
+            step_mode: VertexStepMode::Vertex,
+            attributes: &[VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: VertexFormat::Float32x3,
+            }],
+        }
+    }
+}
+
+#[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Instance {
     pub position: [f32; 3],
@@ -224,6 +284,8 @@ impl Instance {
 
 pub struct Realm {
     pub blocks: Vec<Block>,
+    pub wf_vertex_buffer: Buffer,
+    pub wf_index_buffer: Buffer,
 }
 
 impl Realm {
@@ -246,12 +308,14 @@ impl Realm {
             usage: BufferUsages::VERTEX,
         });
 
+        let under_stone_name = "under_stone";
         let under_stone_tex_offset: [[u8; 2]; 6] = [[1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0]];
 
         let under_stone = Block::new(
             under_stone_instances,
             under_stone_instance_buffer,
             device,
+            under_stone_name,
             under_stone_tex_offset,
         );
         blocks.push(under_stone);
@@ -285,16 +349,18 @@ impl Realm {
             usage: BufferUsages::VERTEX,
         });
 
+        let stone_name = "stone";
         let stone_tex_offset = [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]];
 
         let stone = Block::new(
             stone_instances,
             stone_instance_buffer,
             device,
+            &stone_name,
             stone_tex_offset,
         );
 
-        blocks.push(stone);
+        //blocks.push(stone);
         //岩石创建完成
 
         //创建草方块
@@ -314,17 +380,35 @@ impl Realm {
             usage: BufferUsages::VERTEX,
         });
 
+        let grass_name = "grass";
         let grass_tex_offset = [[3, 0], [2, 0], [3, 0], [4, 0], [3, 0], [3, 0]];
 
         let grass = Block::new(
             grass_instances,
             grass_instance_buffer,
             device,
+            grass_name,
             grass_tex_offset,
         );
-        blocks.push(grass);
+        //blocks.push(grass);
         //草方块创建完成
 
-        Self { blocks }
+        let wf_vertex_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
+            label: Some("wireframe vertex buffer"),
+            contents: bytemuck::cast_slice(&WIREFRAME_VERTICES[..]),
+            usage: BufferUsages::VERTEX,
+        });
+
+        let wf_index_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Wireframe index buffer"),
+            contents: bytemuck::cast_slice(WIREFRAME_INDCIES),
+            usage: BufferUsages::INDEX,
+        });
+
+        Self {
+            blocks,
+            wf_vertex_buffer,
+            wf_index_buffer,
+        }
     }
 }
