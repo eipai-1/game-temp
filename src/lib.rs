@@ -438,8 +438,11 @@ impl State {
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
 
-            for block in &self.realm.all_block {
-                render_pass.set_vertex_buffer(0, block.vertex_buffer.slice(..));
+            for block in self.realm.all_block.iter().skip(1) {
+                render_pass.set_vertex_buffer(
+                    0,
+                    self.realm.block_vertex_buffers[block.block_type as usize].slice(..),
+                );
                 render_pass.set_vertex_buffer(
                     1,
                     self.realm.instance_buffers[block.block_type as usize].slice(..),
@@ -452,6 +455,7 @@ impl State {
                 );
             }
 
+            //绘制线框
             render_pass.set_pipeline(&self.wf_render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);

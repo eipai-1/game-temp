@@ -161,13 +161,14 @@ pub const WIREFRAME_INDCIES: &[u16] = &[
     4, 5, 5, 6, 6, 7, 7, 4,
 ];
 
-const CHUNK_SIZE: usize = 32;
-const CHUNK_HEIGHT: usize = 256;
+const CHUNK_SIZE: usize = 4;
+const CHUNK_HEIGHT: usize = 16;
 
 #[repr(usize)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default, Debug)]
 pub enum BlockType {
-    //没有方块
+    //没有方块 默认值
+    #[default]
     Empty = 0,
 
     //基岩 世界基础
@@ -184,49 +185,24 @@ pub enum BlockType {
 }
 
 #[allow(unused)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Block {
     pub name: &'static str,
-    pub vertex_buffer: Buffer,
     pub block_type: BlockType,
+    pub tex_offset: [[u8; 2]; 6],
 }
 
 impl Block {
     fn new(
-        device: &Device,
-
         name: &'static str,
         //顺序为：正、上、后、下、左、右
         tex_offset: [[u8; 2]; 6],
         block_type: BlockType,
     ) -> Self {
-        let mut vertices: [Vertex; 24] = [Vertex {
-            position: [0.0; 3],
-            tex_coords: [0.0; 2],
-        }; 24];
-
-        for i in 0..6 {
-            for j in 0..4 {
-                vertices[i * 4 + j].position = VERTICES[i * 4 + j].position;
-                vertices[i * 4 + j].tex_coords[0] =
-                    VERTICES[i * 4 + j].tex_coords[0] + TEXT_FRAC * tex_offset[i][0] as f32;
-                vertices[i * 4 + j].tex_coords[1] =
-                    VERTICES[i * 4 + j].tex_coords[1] + TEXT_FRAC * tex_offset[i][1] as f32;
-            }
-        }
-
-        //println!("{:#?}", vertices);
-
-        let vertex_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
-            label: Some("block vertex buffer"),
-            contents: bytemuck::cast_slice(&vertices[..]),
-            usage: BufferUsages::VERTEX,
-        });
-
         Self {
-            vertex_buffer,
             name,
             block_type,
-            //vertices,
+            tex_offset, //vertices,
         }
     }
 }
@@ -302,7 +278,17 @@ impl Instance {
 
 pub struct Chunk {
     position: Vector2<i32>,
-    blocks: [[[BlockType; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_HEIGHT],
+    blocks: Vec<BlockType>,
+}
+
+impl Chunk {
+    fn get_block_type(&self, x: usize, y: usize, z: usize) -> BlockType {
+        return self.blocks[x * CHUNK_SIZE * CHUNK_HEIGHT + y * CHUNK_SIZE + z];
+    }
+
+    fn set_block_type(&mut self, x: usize, y: usize, z: usize, block_type: BlockType) {
+        self.blocks[x * CHUNK_SIZE * CHUNK_HEIGHT + y * CHUNK_SIZE + z] = block_type;
+    }
 }
 
 pub struct Realm {
@@ -312,43 +298,73 @@ pub struct Realm {
     pub wf_index_buffer: Buffer,
     pub instances: Vec<Vec<Instance>>,
     pub instance_buffers: Vec<Buffer>,
+    pub block_vertex_buffers: Vec<Buffer>,
 }
 
 impl Realm {
     pub fn new(device: &Device) -> Self {
-        let mut all_block: Vec<Block> = Vec::new();
+        let mut all_block: Vec<Block> = vec![Block::default(); BLOCK_NUM];
+
+        let empty = Block::new(
+            "Empty",
+            [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+            BlockType::Empty,
+        );
+        all_block[empty.block_type as usize] = empty;
 
         let under_stone = Block::new(
-            device,
-            "under_stone",
+            "Under stone",
             [[1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0]],
             BlockType::UnderStone,
         );
-        all_block.push(under_stone);
+        all_block[under_stone.block_type as usize] = under_stone;
 
         let stone = Block::new(
-            device,
             "stone",
             [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
             BlockType::Stone,
         );
-
-        //创建草方块
-        let grass = Block::new(
-            device,
-            "grass",
-            [[3, 0], [2, 0], [3, 0], [4, 0], [3, 0], [3, 0]],
-            BlockType::Grass,
-        );
-        //blocks.push(grass);
-        //草方块创建完成
+        all_block[stone.block_type as usize] = stone;
 
         let dirt = Block::new(
-            device,
             "dirt",
             [[4, 0], [4, 0], [4, 0], [4, 0], [4, 0], [4, 0]],
             BlockType::Dirt,
         );
+        all_block[dirt.block_type as usize] = dirt;
+
+        //创建草方块
+        let grass = Block::new(
+            "grass",
+            [[3, 0], [2, 0], [3, 0], [4, 0], [3, 0], [3, 0]],
+            BlockType::Grass,
+        );
+        all_block[grass.block_type as usize] = dirt;
+        //草方块创建完成
+
+        let mut block_vertex_buffers: Vec<Buffer> = Vec::new();
+        for block in &all_block {
+            let mut vertices: [Vertex; 24] = [Vertex {
+                position: [0.0; 3],
+                tex_coords: [0.0; 2],
+            }; 24];
+
+            for i in 0..6 {
+                for j in 0..4 {
+                    vertices[i * 4 + j].position = VERTICES[i * 4 + j].position;
+                    vertices[i * 4 + j].tex_coords[0] = VERTICES[i * 4 + j].tex_coords[0]
+                        + TEXT_FRAC * block.tex_offset[i][0] as f32;
+                    vertices[i * 4 + j].tex_coords[1] = VERTICES[i * 4 + j].tex_coords[1]
+                        + TEXT_FRAC * block.tex_offset[i][1] as f32;
+                }
+            }
+
+            block_vertex_buffers.push(device.create_buffer_init(&util::BufferInitDescriptor {
+                label: Some(block.name),
+                contents: bytemuck::cast_slice(&vertices[..]),
+                usage: BufferUsages::VERTEX,
+            }));
+        }
 
         let wf_vertex_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
             label: Some("wireframe vertex buffer"),
@@ -365,39 +381,42 @@ impl Realm {
         let mut chunks: Vec<Chunk> = Vec::new();
 
         let mut instances: Vec<Vec<Instance>> = Vec::new();
-        for i in 0..BLOCK_NUM {
+        for _i in 0..BLOCK_NUM {
             instances.push(Vec::new());
         }
 
-        let mut blocks: [[[BlockType; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_HEIGHT] =
-            [[[BlockType::Empty; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_HEIGHT];
-        for x in 0..CHUNK_SIZE {
-            for y in 0..CHUNK_SIZE {
-                for z in 0..CHUNK_HEIGHT {
-                    if z == 9 {
-                        blocks[x][y][z] = BlockType::Grass;
-                    } else if z > 5 {
-                        blocks[x][y][z] = BlockType::Dirt;
-                    } else if z > 1 {
-                        blocks[x][y][z] = BlockType::Stone;
-                    } else if z == 1 {
-                        blocks[x][y][z] = BlockType::UnderStone;
-                    }
-                }
-            }
-        }
-        let chunk = Chunk {
+        let blocks = vec![BlockType::default(); CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT];
+
+        let mut chunk = Chunk {
             position: (0, 0).into(),
             blocks,
         };
 
-        chunks.push(chunk);
+        for x in 0..CHUNK_SIZE {
+            for y in 0..CHUNK_HEIGHT {
+                for z in 0..CHUNK_SIZE {
+                    // if z > 9 {
+                    //     chunk.set_block_type(x, y, z, BlockType::Empty);
+                    // } else if z == 9 {
+                    if y == 3 {
+                        chunk.set_block_type(x, y, z, BlockType::Grass);
+                    } else if y == 2 {
+                        chunk.set_block_type(x, y, z, BlockType::Dirt);
+                    } else if y == 1 {
+                        chunk.set_block_type(x, y, z, BlockType::Stone);
+                    } else if y == 0 {
+                        chunk.set_block_type(x, y, z, BlockType::UnderStone);
+                    }
+                }
+            }
+        }
 
+        chunks.push(chunk);
         for chunk in &chunks {
             for x in 0..CHUNK_SIZE {
-                for y in 0..CHUNK_SIZE {
-                    for z in 0..CHUNK_HEIGHT {
-                        instances[chunk.blocks[x][y][z] as usize].push(Instance {
+                for y in 0..CHUNK_HEIGHT {
+                    for z in 0..CHUNK_SIZE {
+                        instances[chunk.get_block_type(x, y, z) as usize].push(Instance {
                             position: [x as f32, y as f32, z as f32],
                         });
                     }
@@ -407,11 +426,11 @@ impl Realm {
 
         let mut instance_buffers: Vec<Buffer> = Vec::new();
         for i in 0..BLOCK_NUM {
-            instance_buffers[i] = device.create_buffer_init(&util::BufferInitDescriptor {
+            instance_buffers.push(device.create_buffer_init(&util::BufferInitDescriptor {
                 label: Some("Block buffer"),
                 contents: bytemuck::cast_slice(&instances[i]),
-                usage: BufferUsages::INDEX,
-            })
+                usage: BufferUsages::VERTEX,
+            }));
         }
 
         Self {
@@ -421,6 +440,7 @@ impl Realm {
             wf_index_buffer,
             instances,
             instance_buffers,
+            block_vertex_buffers,
         }
     }
 }
