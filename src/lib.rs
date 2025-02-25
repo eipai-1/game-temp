@@ -13,7 +13,6 @@ use winit::{
 
 mod basic_config;
 mod camera;
-mod control;
 mod realm;
 mod texture;
 
@@ -44,7 +43,6 @@ struct State {
     window: Arc<Window>,
     render_pipeline: RenderPipeline,
     index_buffer: Buffer,
-    num_indices: u32,
 
     //好像没用？
     //diffuse_texture: texture::Texture,
@@ -211,7 +209,7 @@ impl State {
                 usage: BufferUsages::INDEX,
             });
 
-        let num_indices = realm::INDICES.len() as u32;
+        //let num_indices = realm::INDICES.len() as u32;
 
         let render_pipeline_layout =
             basic_config
@@ -331,7 +329,6 @@ impl State {
             window,
             render_pipeline,
             index_buffer,
-            num_indices,
             //diffuse_texture,
             diffuse_bind_group,
 
@@ -441,11 +438,18 @@ impl State {
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
 
-            for block in &self.realm.blocks {
+            for block in &self.realm.all_block {
                 render_pass.set_vertex_buffer(0, block.vertex_buffer.slice(..));
-                render_pass.set_vertex_buffer(1, block.instance_buffer.slice(..));
+                render_pass.set_vertex_buffer(
+                    1,
+                    self.realm.instance_buffers[block.block_type as usize].slice(..),
+                );
                 render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
-                render_pass.draw_indexed(0..self.num_indices, 0, 0..block.instances.len() as _);
+                render_pass.draw_indexed(
+                    0..realm::INDICES.len() as u32,
+                    0,
+                    0..self.realm.instances[block.block_type as usize].len() as _,
+                );
             }
 
             render_pass.set_pipeline(&self.wf_render_pipeline);

@@ -1,7 +1,8 @@
-use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
-    *,
-};
+use wgpu::{util::DeviceExt, *};
+
+const BLOCK_NUM: usize = 5;
+
+use cgmath::*;
 
 pub const TEXT_FRAC: f32 = 16.0 / 512.0;
 pub const VERTICES: &[Vertex] = &[
@@ -160,25 +161,43 @@ pub const WIREFRAME_INDCIES: &[u16] = &[
     4, 5, 5, 6, 6, 7, 7, 4,
 ];
 
-const CHUNK_SIZE: u32 = 16;
+const CHUNK_SIZE: usize = 32;
+const CHUNK_HEIGHT: usize = 256;
 
+#[repr(usize)]
+#[derive(Clone, Copy)]
+pub enum BlockType {
+    //没有方块
+    Empty = 0,
+
+    //基岩 世界基础
+    UnderStone = 1,
+
+    //石头
+    Stone = 2,
+
+    //草方块
+    Grass = 3,
+
+    //泥土
+    Dirt = 4,
+}
+
+#[allow(unused)]
 pub struct Block {
     pub name: &'static str,
-    pub instances: Vec<Instance>,
-    //vertices: [Vertex; 24],
-    pub instance_buffer: Buffer,
     pub vertex_buffer: Buffer,
+    pub block_type: BlockType,
 }
 
 impl Block {
     fn new(
-        instances: Vec<Instance>,
-        instance_buffer: Buffer,
         device: &Device,
 
         name: &'static str,
         //顺序为：正、上、后、下、左、右
         tex_offset: [[u8; 2]; 6],
+        block_type: BlockType,
     ) -> Self {
         let mut vertices: [Vertex; 24] = [Vertex {
             position: [0.0; 3],
@@ -204,10 +223,9 @@ impl Block {
         });
 
         Self {
-            instances,
-            instance_buffer,
             vertex_buffer,
             name,
+            block_type,
             //vertices,
         }
     }
@@ -282,116 +300,55 @@ impl Instance {
     }
 }
 
+pub struct Chunk {
+    position: Vector2<i32>,
+    blocks: [[[BlockType; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_HEIGHT],
+}
+
 pub struct Realm {
-    pub blocks: Vec<Block>,
+    pub chunks: Vec<Chunk>,
+    pub all_block: Vec<Block>,
     pub wf_vertex_buffer: Buffer,
     pub wf_index_buffer: Buffer,
+    pub instances: Vec<Vec<Instance>>,
+    pub instance_buffers: Vec<Buffer>,
 }
 
 impl Realm {
     pub fn new(device: &Device) -> Self {
-        let mut blocks: Vec<Block> = Vec::new();
-
-        let under_stone_instances = (0..CHUNK_SIZE)
-            .flat_map(|x| {
-                (0..CHUNK_SIZE).map(move |z| {
-                    let position: [f32; 3] = [x as f32, 0.0, z as f32];
-
-                    Instance { position }
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let under_stone_instance_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
-            label: Some("under stone instance buffer"),
-            contents: bytemuck::cast_slice(&under_stone_instances),
-            usage: BufferUsages::VERTEX,
-        });
-
-        let under_stone_name = "under_stone";
-        let under_stone_tex_offset: [[u8; 2]; 6] = [[1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0]];
+        let mut all_block: Vec<Block> = Vec::new();
 
         let under_stone = Block::new(
-            under_stone_instances,
-            under_stone_instance_buffer,
             device,
-            under_stone_name,
-            under_stone_tex_offset,
+            "under_stone",
+            [[1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0]],
+            BlockType::UnderStone,
         );
-        blocks.push(under_stone);
-
-        //创建岩石
-        let mut stone_instances = (0..CHUNK_SIZE)
-            .flat_map(|x| {
-                (0..CHUNK_SIZE).map(move |z| {
-                    let position: [f32; 3] = [x as f32, 1.0, z as f32];
-
-                    Instance { position }
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let stone_instances2 = (0..CHUNK_SIZE)
-            .flat_map(|x| {
-                (0..CHUNK_SIZE).map(move |z| {
-                    let position: [f32; 3] = [x as f32, 2.0, z as f32];
-
-                    Instance { position }
-                })
-            })
-            .collect::<Vec<_>>();
-
-        stone_instances.extend(stone_instances2);
-
-        let stone_instance_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
-            label: Some("stone instance buffer"),
-            contents: bytemuck::cast_slice(&stone_instances),
-            usage: BufferUsages::VERTEX,
-        });
-
-        let stone_name = "stone";
-        let stone_tex_offset = [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]];
+        all_block.push(under_stone);
 
         let stone = Block::new(
-            stone_instances,
-            stone_instance_buffer,
             device,
-            &stone_name,
-            stone_tex_offset,
+            "stone",
+            [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+            BlockType::Stone,
         );
 
-        //blocks.push(stone);
-        //岩石创建完成
-
         //创建草方块
-        let grass_instances = (0..CHUNK_SIZE)
-            .flat_map(|x| {
-                (0..CHUNK_SIZE).map(move |z| {
-                    let position: [f32; 3] = [x as f32, 3.0, z as f32];
-
-                    Instance { position }
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let grass_instance_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
-            label: Some("grass instance buffer"),
-            contents: bytemuck::cast_slice(&grass_instances),
-            usage: BufferUsages::VERTEX,
-        });
-
-        let grass_name = "grass";
-        let grass_tex_offset = [[3, 0], [2, 0], [3, 0], [4, 0], [3, 0], [3, 0]];
-
         let grass = Block::new(
-            grass_instances,
-            grass_instance_buffer,
             device,
-            grass_name,
-            grass_tex_offset,
+            "grass",
+            [[3, 0], [2, 0], [3, 0], [4, 0], [3, 0], [3, 0]],
+            BlockType::Grass,
         );
         //blocks.push(grass);
         //草方块创建完成
+
+        let dirt = Block::new(
+            device,
+            "dirt",
+            [[4, 0], [4, 0], [4, 0], [4, 0], [4, 0], [4, 0]],
+            BlockType::Dirt,
+        );
 
         let wf_vertex_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
             label: Some("wireframe vertex buffer"),
@@ -399,16 +356,71 @@ impl Realm {
             usage: BufferUsages::VERTEX,
         });
 
-        let wf_index_buffer = device.create_buffer_init(&BufferInitDescriptor {
+        let wf_index_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
             label: Some("Wireframe index buffer"),
             contents: bytemuck::cast_slice(WIREFRAME_INDCIES),
             usage: BufferUsages::INDEX,
         });
 
-        Self {
+        let mut chunks: Vec<Chunk> = Vec::new();
+
+        let mut instances: Vec<Vec<Instance>> = Vec::new();
+        for i in 0..BLOCK_NUM {
+            instances.push(Vec::new());
+        }
+
+        let mut blocks: [[[BlockType; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_HEIGHT] =
+            [[[BlockType::Empty; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_HEIGHT];
+        for x in 0..CHUNK_SIZE {
+            for y in 0..CHUNK_SIZE {
+                for z in 0..CHUNK_HEIGHT {
+                    if z == 9 {
+                        blocks[x][y][z] = BlockType::Grass;
+                    } else if z > 5 {
+                        blocks[x][y][z] = BlockType::Dirt;
+                    } else if z > 1 {
+                        blocks[x][y][z] = BlockType::Stone;
+                    } else if z == 1 {
+                        blocks[x][y][z] = BlockType::UnderStone;
+                    }
+                }
+            }
+        }
+        let chunk = Chunk {
+            position: (0, 0).into(),
             blocks,
+        };
+
+        chunks.push(chunk);
+
+        for chunk in &chunks {
+            for x in 0..CHUNK_SIZE {
+                for y in 0..CHUNK_SIZE {
+                    for z in 0..CHUNK_HEIGHT {
+                        instances[chunk.blocks[x][y][z] as usize].push(Instance {
+                            position: [x as f32, y as f32, z as f32],
+                        });
+                    }
+                }
+            }
+        }
+
+        let mut instance_buffers: Vec<Buffer> = Vec::new();
+        for i in 0..BLOCK_NUM {
+            instance_buffers[i] = device.create_buffer_init(&util::BufferInitDescriptor {
+                label: Some("Block buffer"),
+                contents: bytemuck::cast_slice(&instances[i]),
+                usage: BufferUsages::INDEX,
+            })
+        }
+
+        Self {
+            all_block,
+            chunks,
             wf_vertex_buffer,
             wf_index_buffer,
+            instances,
+            instance_buffers,
         }
     }
 }
