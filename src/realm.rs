@@ -422,6 +422,35 @@ impl RealmData {
             center_chunk_pos,
         }
     }
+
+    pub fn get_block_type(&self, mut x: i32, mut y: i32, z: i32) -> BlockType {
+        let chunk_x = x / CHUNK_SIZE as i32;
+        let chunk_y = y / CHUNK_SIZE as i32;
+
+        let i32_size = CHUNK_SIZE as i32;
+        x = (x + i32_size) % i32_size;
+        y = (y + i32_size) % i32_size;
+
+        println!("x={}, y={}", x, y);
+
+        for chunk in &self.chunks {
+            if chunk.position.x == chunk_x && chunk.position.y == chunk_y {
+                return chunk.blocks[x as usize * CHUNK_SIZE * CHUNK_HEIGHT
+                    + y as usize * CHUNK_SIZE
+                    + z as usize];
+            }
+        }
+
+        BlockType::Empty
+    }
+
+    pub fn update_wf_uniform(&mut self, new_position: Point3<i32>) {
+        self.wf_uniform.position = [
+            new_position.x as f32,
+            new_position.y as f32,
+            new_position.z as f32,
+        ];
+    }
 }
 
 pub struct RenderResources {
@@ -500,34 +529,5 @@ impl Realm {
         let render_res = RenderResources::new(device, &data);
 
         Self { data, render_res }
-    }
-
-    pub fn get_block_type(&self, mut x: i32, mut y: i32, z: i32) -> BlockType {
-        let chunk_x = x / CHUNK_SIZE as i32;
-        let chunk_y = y / CHUNK_SIZE as i32;
-
-        let i32_size = CHUNK_SIZE as i32;
-        x = (x + i32_size) % i32_size;
-        y = (y + i32_size) % i32_size;
-
-        println!("x={}, y={}", x, y);
-
-        for chunk in &self.data.chunks {
-            if chunk.position.x == chunk_x && chunk.position.y == chunk_y {
-                return chunk.blocks[x as usize * CHUNK_SIZE * CHUNK_HEIGHT
-                    + y as usize * CHUNK_SIZE
-                    + z as usize];
-            }
-        }
-
-        BlockType::Empty
-    }
-
-    pub fn update_wf_uniform(&mut self, new_position: Point3<i32>) {
-        self.data.wf_uniform.position = [
-            new_position.x as f32,
-            new_position.y as f32,
-            new_position.z as f32,
-        ];
     }
 }

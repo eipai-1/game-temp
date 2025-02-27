@@ -185,7 +185,7 @@ impl CameraController {
         }
     }
 
-    pub fn update_camera(&self, camera: &mut Camera, dt: f32, realm: &mut realm::Realm) {
+    pub fn update_camera(&self, camera: &mut Camera, dt: f32, data: &mut realm::RealmData) {
         let (yaw_sin, yaw_cos) = camera.yaw.0.sin_cos();
         let forward = Vector3::new(yaw_cos, 0.0, yaw_sin).normalize();
         //为什么这个是右边？？这不是左边吗？？
@@ -210,27 +210,27 @@ impl CameraController {
             camera.position.y -= self.speed * dt;
         };
 
-        match update_wf(camera, realm) {
+        match update_wf(camera, data) {
             Some(new_position) => {
-                realm.data.is_wf_visible = true;
-                realm.update_wf_uniform(new_position);
+                data.is_wf_visible = true;
+                data.update_wf_uniform(new_position);
             }
             None => {
-                realm.data.is_wf_visible = false;
+                data.is_wf_visible = false;
             }
         }
     }
 }
 
-fn update_wf(camera: &Camera, realm: &realm::Realm) -> Option<Point3<i32>> {
-    dda(camera.direction(), camera.position, realm)
+fn update_wf(camera: &Camera, data: &realm::RealmData) -> Option<Point3<i32>> {
+    dda(camera.direction(), camera.position, data)
 }
 
-fn dda(dir: Vector3<f32>, position: Point3<f32>, realm: &realm::Realm) -> Option<Point3<i32>> {
+fn dda(dir: Vector3<f32>, position: Point3<f32>, data: &realm::RealmData) -> Option<Point3<i32>> {
     let mut cur_block = position.map(|x| x.floor() as i32);
 
     //如果当前卡在方块里面，就不进行射线检测
-    if realm.get_block_type(cur_block.x, cur_block.y, cur_block.z) == realm::BlockType::Empty {
+    if data.get_block_type(cur_block.x, cur_block.y, cur_block.z) == realm::BlockType::Empty {
         return None;
     }
 
@@ -244,8 +244,8 @@ fn dda(dir: Vector3<f32>, position: Point3<f32>, realm: &realm::Realm) -> Option
 
     let mut traveled = 0.0;
 
-    while traveled < realm.data.wf_max_len {
-        let tp = realm.get_block_type(cur_block.x, cur_block.y, cur_block.z);
+    while traveled < data.wf_max_len {
+        let tp = data.get_block_type(cur_block.x, cur_block.y, cur_block.z);
         if tp != realm::BlockType::Empty {
             return Some(cur_block);
         }

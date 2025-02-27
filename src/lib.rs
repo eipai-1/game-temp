@@ -404,8 +404,11 @@ impl State {
         self.dt = (instant::Instant::now() - self.last_render_time).as_secs_f64();
         self.last_render_time = instant::Instant::now();
 
-        self.camera_controller
-            .update_camera(&mut self.camera, self.dt as f32, &mut self.realm);
+        self.camera_controller.update_camera(
+            &mut self.camera,
+            self.dt as f32,
+            &mut self.realm.data,
+        );
         self.camera_uniform
             .update_view_proj(&self.camera, &self.projection);
 
