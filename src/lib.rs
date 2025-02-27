@@ -12,8 +12,8 @@ use winit::{
 };
 
 mod basic_config;
-mod camera;
-mod realm;
+pub mod camera;
+pub mod realm;
 mod texture;
 
 #[repr(C)]
@@ -109,16 +109,28 @@ impl State {
                 .device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("camera bind group layout"),
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::VERTEX,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
                         },
-                        count: None,
-                    }],
+                        BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: ShaderStages::VERTEX,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                    ],
                 });
 
         let camera_bind_group = basic_config
@@ -126,10 +138,16 @@ impl State {
             .create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("camera bind group"),
                 layout: &camera_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: camera_buffer.as_entire_binding(),
-                }],
+                entries: &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: camera_buffer.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: realm.render_res.wf_uniform_buffer.as_entire_binding(),
+                    },
+                ],
             });
 
         let camera_controller = camera::CameraController::new(
@@ -387,13 +405,19 @@ impl State {
         self.last_render_time = instant::Instant::now();
 
         self.camera_controller
-            .update_camera(&mut self.camera, self.dt as f32);
+            .update_camera(&mut self.camera, self.dt as f32, &mut self.realm);
         self.camera_uniform
             .update_view_proj(&self.camera, &self.projection);
+
         self.basic_config.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
+        );
+        self.basic_config.queue.write_buffer(
+            &self.realm.render_res.wf_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&self.realm.data.wf_uniform),
         );
     }
 
@@ -438,30 +462,35 @@ impl State {
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
 
-            for block in self.realm.all_block.iter().skip(1) {
+            for block in self.realm.data.all_block.iter().skip(1) {
                 render_pass.set_vertex_buffer(
                     0,
-                    self.realm.block_vertex_buffers[block.block_type as usize].slice(..),
+                    self.realm.render_res.block_vertex_buffers[block.block_type as usize].slice(..),
                 );
                 render_pass.set_vertex_buffer(
                     1,
-                    self.realm.instance_buffers[block.block_type as usize].slice(..),
+                    self.realm.render_res.instance_buffers[block.block_type as usize].slice(..),
                 );
                 render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
                 render_pass.draw_indexed(
                     0..realm::INDICES.len() as u32,
                     0,
-                    0..self.realm.instances[block.block_type as usize].len() as _,
+                    0..self.realm.data.instances[block.block_type as usize].len() as _,
                 );
             }
 
             //绘制线框
-            render_pass.set_pipeline(&self.wf_render_pipeline);
-            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.realm.wf_vertex_buffer.slice(..));
-            render_pass.set_index_buffer(self.realm.wf_index_buffer.slice(..), IndexFormat::Uint16);
-            render_pass.draw_indexed(0..realm::WIREFRAME_INDCIES.len() as u32, 0, 0..1);
+            if self.realm.data.is_wf_visible {
+                render_pass.set_pipeline(&self.wf_render_pipeline);
+                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.realm.render_res.wf_vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    self.realm.render_res.wf_index_buffer.slice(..),
+                    IndexFormat::Uint16,
+                );
+                render_pass.draw_indexed(0..realm::WIREFRAME_INDCIES.len() as u32, 0, 0..1);
+            }
         }
 
         self.basic_config.queue.submit(iter::once(encoder.finish()));

@@ -165,7 +165,7 @@ const CHUNK_SIZE: usize = 4;
 const CHUNK_HEIGHT: usize = 16;
 
 #[repr(usize)]
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub enum BlockType {
     //没有方块 默认值
     #[default]
@@ -241,6 +241,13 @@ pub struct WireframeVertex {
     pub position: [f32; 3],
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct WireframeUniform {
+    pub position: [f32; 3],
+    _padding: f32,
+}
+
 impl WireframeVertex {
     pub fn desc() -> VertexBufferLayout<'static> {
         VertexBufferLayout {
@@ -292,17 +299,24 @@ impl Chunk {
 }
 
 pub struct Realm {
-    pub chunks: Vec<Chunk>,
-    pub all_block: Vec<Block>,
-    pub wf_vertex_buffer: Buffer,
-    pub wf_index_buffer: Buffer,
-    pub instances: Vec<Vec<Instance>>,
-    pub instance_buffers: Vec<Buffer>,
-    pub block_vertex_buffers: Vec<Buffer>,
+    pub data: RealmData,
+    pub render_res: RenderResources,
 }
 
-impl Realm {
-    pub fn new(device: &Device) -> Self {
+pub struct RealmData {
+    pub chunks: Vec<Chunk>,
+    pub all_block: Vec<Block>,
+    pub wf_max_len: f32,
+    pub instances: Vec<Vec<Instance>>,
+
+    pub wf_uniform: WireframeUniform,
+    pub is_wf_visible: bool,
+
+    pub center_chunk_pos: Point2<i32>,
+}
+
+impl RealmData {
+    fn new() -> Self {
         let mut all_block: Vec<Block> = vec![Block::default(); BLOCK_NUM];
 
         let empty = Block::new(
@@ -341,43 +355,6 @@ impl Realm {
         );
         all_block[grass.block_type as usize] = dirt;
         //草方块创建完成
-
-        let mut block_vertex_buffers: Vec<Buffer> = Vec::new();
-        for block in &all_block {
-            let mut vertices: [Vertex; 24] = [Vertex {
-                position: [0.0; 3],
-                tex_coords: [0.0; 2],
-            }; 24];
-
-            for i in 0..6 {
-                for j in 0..4 {
-                    vertices[i * 4 + j].position = VERTICES[i * 4 + j].position;
-                    vertices[i * 4 + j].tex_coords[0] = VERTICES[i * 4 + j].tex_coords[0]
-                        + TEXT_FRAC * block.tex_offset[i][0] as f32;
-                    vertices[i * 4 + j].tex_coords[1] = VERTICES[i * 4 + j].tex_coords[1]
-                        + TEXT_FRAC * block.tex_offset[i][1] as f32;
-                }
-            }
-
-            block_vertex_buffers.push(device.create_buffer_init(&util::BufferInitDescriptor {
-                label: Some(block.name),
-                contents: bytemuck::cast_slice(&vertices[..]),
-                usage: BufferUsages::VERTEX,
-            }));
-        }
-
-        let wf_vertex_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
-            label: Some("wireframe vertex buffer"),
-            contents: bytemuck::cast_slice(&WIREFRAME_VERTICES[..]),
-            usage: BufferUsages::VERTEX,
-        });
-
-        let wf_index_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
-            label: Some("Wireframe index buffer"),
-            contents: bytemuck::cast_slice(WIREFRAME_INDCIES),
-            usage: BufferUsages::INDEX,
-        });
-
         let mut chunks: Vec<Chunk> = Vec::new();
 
         let mut instances: Vec<Vec<Instance>> = Vec::new();
@@ -424,23 +401,133 @@ impl Realm {
             }
         }
 
-        let mut instance_buffers: Vec<Buffer> = Vec::new();
-        for i in 0..BLOCK_NUM {
-            instance_buffers.push(device.create_buffer_init(&util::BufferInitDescriptor {
-                label: Some("Block buffer"),
-                contents: bytemuck::cast_slice(&instances[i]),
-                usage: BufferUsages::VERTEX,
-            }));
-        }
+        let wf_uniform = WireframeUniform {
+            position: [-1.0, -1.0, -1.0],
+            _padding: 0.0,
+        };
+
+        let wf_max_len: f32 = 6.0;
+
+        let is_wf_visible = false;
+
+        let center_chunk_pos = Point2 { x: 0, y: 0 };
 
         Self {
             all_block,
             chunks,
-            wf_vertex_buffer,
-            wf_index_buffer,
             instances,
-            instance_buffers,
-            block_vertex_buffers,
+            wf_uniform,
+            wf_max_len,
+            is_wf_visible,
+            center_chunk_pos,
         }
+    }
+}
+
+pub struct RenderResources {
+    pub wf_vertex_buffer: Buffer,
+    pub wf_index_buffer: Buffer,
+    pub instance_buffers: Vec<Buffer>,
+    pub block_vertex_buffers: Vec<Buffer>,
+    pub wf_uniform_buffer: Buffer,
+}
+
+impl RenderResources {
+    fn new(device: &Device, data: &RealmData) -> Self {
+        let mut block_vertex_buffers: Vec<Buffer> = Vec::new();
+        for block in &data.all_block {
+            let mut vertices: [Vertex; 24] = [Vertex {
+                position: [0.0; 3],
+                tex_coords: [0.0; 2],
+            }; 24];
+
+            for i in 0..6 {
+                for j in 0..4 {
+                    vertices[i * 4 + j].position = VERTICES[i * 4 + j].position;
+                    vertices[i * 4 + j].tex_coords[0] = VERTICES[i * 4 + j].tex_coords[0]
+                        + TEXT_FRAC * block.tex_offset[i][0] as f32;
+                    vertices[i * 4 + j].tex_coords[1] = VERTICES[i * 4 + j].tex_coords[1]
+                        + TEXT_FRAC * block.tex_offset[i][1] as f32;
+                }
+            }
+
+            block_vertex_buffers.push(device.create_buffer_init(&util::BufferInitDescriptor {
+                label: Some(block.name),
+                contents: bytemuck::cast_slice(&vertices[..]),
+                usage: BufferUsages::VERTEX,
+            }));
+        }
+
+        let wf_vertex_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
+            label: Some("wireframe vertex buffer"),
+            contents: bytemuck::cast_slice(&WIREFRAME_VERTICES[..]),
+            usage: BufferUsages::VERTEX,
+        });
+
+        let wf_index_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
+            label: Some("Wireframe index buffer"),
+            contents: bytemuck::cast_slice(WIREFRAME_INDCIES),
+            usage: BufferUsages::INDEX,
+        });
+
+        let wf_uniform_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
+            label: Some("Wireframe uniform buffer"),
+            contents: bytemuck::bytes_of(&data.wf_uniform),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        });
+
+        let mut instance_buffers: Vec<Buffer> = Vec::new();
+        for i in 0..BLOCK_NUM {
+            instance_buffers.push(device.create_buffer_init(&util::BufferInitDescriptor {
+                label: Some("Block buffer"),
+                contents: bytemuck::cast_slice(&data.instances[i]),
+                usage: BufferUsages::VERTEX,
+            }));
+        }
+        Self {
+            block_vertex_buffers,
+            wf_index_buffer,
+            wf_vertex_buffer,
+            wf_uniform_buffer,
+            instance_buffers,
+        }
+    }
+}
+
+impl Realm {
+    pub fn new(device: &Device) -> Self {
+        let data = RealmData::new();
+        let render_res = RenderResources::new(device, &data);
+
+        Self { data, render_res }
+    }
+
+    pub fn get_block_type(&self, mut x: i32, mut y: i32, z: i32) -> BlockType {
+        let chunk_x = x / CHUNK_SIZE as i32;
+        let chunk_y = y / CHUNK_SIZE as i32;
+
+        let i32_size = CHUNK_SIZE as i32;
+        x = (x + i32_size) % i32_size;
+        y = (y + i32_size) % i32_size;
+
+        println!("x={}, y={}", x, y);
+
+        for chunk in &self.data.chunks {
+            if chunk.position.x == chunk_x && chunk.position.y == chunk_y {
+                return chunk.blocks[x as usize * CHUNK_SIZE * CHUNK_HEIGHT
+                    + y as usize * CHUNK_SIZE
+                    + z as usize];
+            }
+        }
+
+        BlockType::Empty
+    }
+
+    pub fn update_wf_uniform(&mut self, new_position: Point3<i32>) {
+        self.data.wf_uniform.position = [
+            new_position.x as f32,
+            new_position.y as f32,
+            new_position.z as f32,
+        ];
     }
 }

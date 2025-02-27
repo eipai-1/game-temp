@@ -6,6 +6,8 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
 };
 
+use crate::realm;
+
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.0001;
 
 #[derive(Debug)]
@@ -28,15 +30,18 @@ impl Camera {
         }
     }
 
-    pub fn calc_matrix(&self) -> Matrix4<f32> {
-        let (sin_pitch, cos_pitch) = self.pitch.0.sin_cos();
-        let (sin_yaw, cos_yaw) = self.yaw.0.sin_cos();
+    //返回方向向量
+    pub fn direction(&self) -> Vector3<f32> {
+        Vector3 {
+            x: self.yaw.0.cos() * self.pitch.0.cos(),
+            y: self.pitch.0.sin(),
+            z: self.yaw.0.sin() * self.pitch.0.cos(),
+        }
+        .normalize()
+    }
 
-        Matrix4::look_to_rh(
-            self.position,
-            Vector3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize(),
-            Vector3::unit_y(),
-        )
+    pub fn calc_matrix(&self) -> Matrix4<f32> {
+        Matrix4::look_to_rh(self.position, self.direction(), Vector3::unit_y())
     }
 }
 
@@ -180,7 +185,7 @@ impl CameraController {
         }
     }
 
-    pub fn update_camera(&self, camera: &mut Camera, dt: f32) {
+    pub fn update_camera(&self, camera: &mut Camera, dt: f32, realm: &mut realm::Realm) {
         let (yaw_sin, yaw_cos) = camera.yaw.0.sin_cos();
         let forward = Vector3::new(yaw_cos, 0.0, yaw_sin).normalize();
         //为什么这个是右边？？这不是左边吗？？
@@ -203,7 +208,81 @@ impl CameraController {
         }
         if self.is_down_pressed {
             camera.position.y -= self.speed * dt;
+        };
+
+        match update_wf(camera, realm) {
+            Some(new_position) => {
+                realm.data.is_wf_visible = true;
+                realm.update_wf_uniform(new_position);
+            }
+            None => {
+                realm.data.is_wf_visible = false;
+            }
         }
-        // Keep the camera's angle from going too high/low.
     }
+}
+
+fn update_wf(camera: &Camera, realm: &realm::Realm) -> Option<Point3<i32>> {
+    dda(camera.direction(), camera.position, realm)
+}
+
+fn dda(dir: Vector3<f32>, position: Point3<f32>, realm: &realm::Realm) -> Option<Point3<i32>> {
+    let mut cur_block = position.map(|x| x.floor() as i32);
+
+    //如果当前卡在方块里面，就不进行射线检测
+    if realm.get_block_type(cur_block.x, cur_block.y, cur_block.z) == realm::BlockType::Empty {
+        return None;
+    }
+
+    let t_delta = dir.map(|x| 1.0 / x.abs());
+
+    let mut t: Point3<f32> = Point3::new(0.0, 0.0, 0.0);
+
+    t.x = (position.x - cur_block.x as f32) / dir.x;
+    t.y = (position.y - cur_block.y as f32) / dir.y;
+    t.z = (position.z - cur_block.z as f32) / dir.z;
+
+    let mut traveled = 0.0;
+
+    while traveled < realm.data.wf_max_len {
+        let tp = realm.get_block_type(cur_block.x, cur_block.y, cur_block.z);
+        if tp != realm::BlockType::Empty {
+            return Some(cur_block);
+        }
+
+        //找出最大的坐标轴
+        #[rustfmt::skip]
+            let axis = if t.x > t.y {
+                if t.x > t.z {0} else {2}
+            } else {
+                if t.y > t.z {1} else {2}
+            };
+
+        match axis {
+            0 => {
+                cur_block.x += 1;
+                t.x += t_delta.x;
+            }
+            1 => {
+                cur_block.y += 1;
+                t.y += t_delta.y;
+            }
+            2 => {
+                cur_block.z += 1;
+                t.z += t_delta.z;
+            }
+            _ => {}
+        }
+
+        traveled += 1.0;
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::realm;
+
+    #[test]
+    fn test_dda() {}
 }
