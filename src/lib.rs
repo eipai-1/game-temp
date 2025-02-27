@@ -84,7 +84,7 @@ impl State {
         let realm = realm::Realm::new(&basic_config.device);
 
         //创建摄像机
-        let camera = camera::Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
+        let camera = camera::Camera::new((-1.0, -1.0, -1.0), cgmath::Deg(0.0), cgmath::Deg(45.0));
         let projection = camera::Projection::new(
             basic_config.config.width,
             basic_config.config.height,

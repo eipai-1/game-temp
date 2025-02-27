@@ -284,8 +284,9 @@ impl Instance {
 }
 
 pub struct Chunk {
-    position: Vector2<i32>,
     blocks: Vec<BlockType>,
+    x: i32,
+    z: i32,
 }
 
 impl Chunk {
@@ -316,7 +317,7 @@ pub struct RealmData {
 }
 
 impl RealmData {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let mut all_block: Vec<Block> = vec![Block::default(); BLOCK_NUM];
 
         let empty = Block::new(
@@ -364,10 +365,7 @@ impl RealmData {
 
         let blocks = vec![BlockType::default(); CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT];
 
-        let mut chunk = Chunk {
-            position: (0, 0).into(),
-            blocks,
-        };
+        let mut chunk = Chunk { x: 0, z: 0, blocks };
 
         for x in 0..CHUNK_SIZE {
             for y in 0..CHUNK_HEIGHT {
@@ -423,18 +421,19 @@ impl RealmData {
         }
     }
 
-    pub fn get_block_type(&self, mut x: i32, mut y: i32, z: i32) -> BlockType {
-        let chunk_x = x / CHUNK_SIZE as i32;
-        let chunk_y = y / CHUNK_SIZE as i32;
+    pub fn get_block_type(&self, mut x: i32, y: i32, mut z: i32) -> BlockType {
+        let chunk_x = (x as f32 / CHUNK_SIZE as f32).floor() as i32;
+        let chunk_z = (z as f32 / CHUNK_SIZE as f32).floor() as i32;
 
         let i32_size = CHUNK_SIZE as i32;
         x = (x + i32_size) % i32_size;
-        y = (y + i32_size) % i32_size;
+        z = (z + i32_size) % i32_size;
 
-        println!("x={}, y={}", x, y);
+        //println!("chunk_x:{}, chunk_z:{} ", chunk_x, chunk_z);
+        //println!("x={}, y={}, z={}", x, y, z);
 
         for chunk in &self.chunks {
-            if chunk.position.x == chunk_x && chunk.position.y == chunk_y {
+            if chunk.x == chunk_x && chunk.z == chunk_z {
                 return chunk.blocks[x as usize * CHUNK_SIZE * CHUNK_HEIGHT
                     + y as usize * CHUNK_SIZE
                     + z as usize];
@@ -529,5 +528,23 @@ impl Realm {
         let render_res = RenderResources::new(device, &data);
 
         Self { data, render_res }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::realm::BlockType;
+
+    use super::RealmData;
+
+    #[test]
+    fn test_get_set_block_type() {
+        let data = RealmData::new();
+
+        assert_eq!(data.get_block_type(0, 0, 0), BlockType::UnderStone);
+        assert_eq!(data.get_block_type(0, 1, 0), BlockType::Stone);
+        assert_eq!(data.get_block_type(0, 2, 0), BlockType::Dirt);
+        assert_eq!(data.get_block_type(0, 3, 0), BlockType::Grass);
+        assert_eq!(data.get_block_type(0, 0, -1), BlockType::Empty);
     }
 }

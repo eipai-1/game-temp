@@ -228,9 +228,11 @@ fn update_wf(camera: &Camera, data: &realm::RealmData) -> Option<Point3<i32>> {
 
 fn dda(dir: Vector3<f32>, position: Point3<f32>, data: &realm::RealmData) -> Option<Point3<i32>> {
     let mut cur_block = position.map(|x| x.floor() as i32);
+    //println!("{:#?}", cur_block);
 
     //如果当前卡在方块里面，就不进行射线检测
-    if data.get_block_type(cur_block.x, cur_block.y, cur_block.z) == realm::BlockType::Empty {
+    if data.get_block_type(cur_block.x, cur_block.y, cur_block.z) != realm::BlockType::Empty {
+        //println!("stuck");
         return None;
     }
 
@@ -281,8 +283,28 @@ fn dda(dir: Vector3<f32>, position: Point3<f32>, data: &realm::RealmData) -> Opt
 
 #[cfg(test)]
 mod tests {
-    use crate::realm;
+    use crate::{
+        camera::{update_wf, Camera},
+        realm,
+    };
+    use cgmath::*;
 
     #[test]
-    fn test_dda() {}
+    fn test_dda() {
+        let data = realm::RealmData::new();
+        let dir: Vector3<f32> = Vector3 {
+            x: 0.0,
+            y: 0.0,
+            z: 1.0,
+        };
+        let position = Point3 {
+            x: 0.5,
+            y: 0.5,
+            z: -1.0,
+        };
+
+        let camera = Camera::new(position, Deg(0.0), Deg(45.0));
+        let ans = Point3 { x: 0, y: 1, z: 0 };
+        assert_eq!(update_wf(&camera, &data).unwrap(), ans);
+    }
 }
