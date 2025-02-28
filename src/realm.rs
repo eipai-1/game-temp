@@ -391,9 +391,12 @@ impl RealmData {
             for x in 0..CHUNK_SIZE {
                 for y in 0..CHUNK_HEIGHT {
                     for z in 0..CHUNK_SIZE {
-                        instances[chunk.get_block_type(x, y, z) as usize].push(Instance {
-                            position: [x as f32, y as f32, z as f32],
-                        });
+                        let tp = chunk.get_block_type(x, y, z);
+                        if tp != BlockType::Empty {
+                            instances[tp as usize].push(Instance {
+                                position: [x as f32, y as f32, z as f32],
+                            });
+                        }
                     }
                 }
             }

@@ -210,7 +210,7 @@ impl CameraController {
             camera.position.y -= self.speed * dt;
         };
 
-        update_wf(camera, data);
+        //update_wf(camera, data);
     }
 }
 
