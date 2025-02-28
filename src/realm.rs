@@ -426,7 +426,7 @@ impl RealmData {
             _padding: 0.0,
         };
 
-        let wf_max_len: f32 = 6.0;
+        let wf_max_len: f32 = 10.0;
 
         let is_wf_visible = true;
 

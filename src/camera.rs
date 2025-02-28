@@ -300,7 +300,7 @@ fn dda(dir: Vector3<f32>, position: Point3<f32>, data: &realm::RealmData) -> Opt
         //找出最小的坐标轴
         #[rustfmt::skip]
             let axis = if t.x < t.y {
-                if t.x < t.z {0} else {1}
+                if t.x < t.z {0} else {2}
             } else {
                 if t.y < t.z {1} else {2}
             };
@@ -321,7 +321,7 @@ fn dda(dir: Vector3<f32>, position: Point3<f32>, data: &realm::RealmData) -> Opt
             _ => {}
         }
 
-        traveled += 1.0;
+        traveled += t[axis];
     }
     None
 }
