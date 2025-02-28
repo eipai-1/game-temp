@@ -210,15 +210,15 @@ impl CameraController {
             camera.position.y -= self.speed * dt;
         };
 
-        match update_wf(camera, data) {
-            Some(new_position) => {
-                data.is_wf_visible = true;
-                data.update_wf_uniform(new_position);
-            }
-            None => {
-                data.is_wf_visible = false;
-            }
-        }
+        //match update_wf(camera, data) {
+        //    Some(new_position) => {
+        //        data.is_wf_visible = true;
+        //        data.update_wf_uniform(new_position);
+        //    }
+        //    None => {
+        //        data.is_wf_visible = false;
+        //    }
+        //}
     }
 }
 

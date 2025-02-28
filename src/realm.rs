@@ -117,6 +117,9 @@ pub const VERTICES: &[Vertex] = &[
     },
 ];
 
+const WF_SIZE: f32 = 0.01;
+const WF_WIDTH: f32 = 0.1;
+
 #[rustfmt::skip]
 pub const INDICES: &[u16] = &[
     0,  1,  2,  0,  2,  3, /* 之后每个加4就行 */ 
@@ -127,38 +130,11 @@ pub const INDICES: &[u16] = &[
     20, 21, 22, 20, 22, 23,
 ];
 
-pub const WIREFRAME_VERTICES: &[WireframeVertex] = &[
-    WireframeVertex {
-        position: [0.0, 1.001, 0.0],
-    },
-    WireframeVertex {
-        position: [1.001, 1.001, 0.0],
-    },
-    WireframeVertex {
-        position: [1.001, 1.001, 1.001],
-    },
-    WireframeVertex {
-        position: [0.0, 1.001, 1.001],
-    },
-    WireframeVertex {
-        position: [0.0, 0.0, 0.0],
-    },
-    WireframeVertex {
-        position: [1.001, 0.0, 0.0],
-    },
-    WireframeVertex {
-        position: [1.001, 0.0, 1.001],
-    },
-    WireframeVertex {
-        position: [0.0, 0.0, 1.001],
-    },
-];
-
 #[rustfmt::skip]
 pub const WIREFRAME_INDCIES: &[u16] = &[
-    0, 1, 1, 2, 2, 3, 3, 0,
-    0, 4, 1, 5, 2, 6, 3, 7,
-    4, 5, 5, 6, 6, 7, 7, 4,
+    //顶面4条边
+    0,  4,  1,  4,  5,  1,
+    4,  8,  11, 11, 7,  4,
 ];
 
 const CHUNK_SIZE: usize = 4;
@@ -168,20 +144,20 @@ const CHUNK_HEIGHT: usize = 16;
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub enum BlockType {
     //没有方块 默认值
-    #[default]
-    Empty = 0,
-
     //基岩 世界基础
-    UnderStone = 1,
+    UnderStone = 4,
 
     //石头
-    Stone = 2,
+    Stone = 1,
 
     //草方块
-    Grass = 3,
+    Grass = 2,
 
     //泥土
-    Dirt = 4,
+    Dirt = 3,
+
+    #[default]
+    Empty = 0,
 }
 
 #[allow(unused)]
@@ -322,7 +298,7 @@ impl RealmData {
 
         let empty = Block::new(
             "Empty",
-            [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+            [[5, 0], [5, 0], [5, 0], [5, 0], [5, 0], [5, 0]],
             BlockType::Empty,
         );
         all_block[empty.block_type as usize] = empty;
@@ -343,7 +319,9 @@ impl RealmData {
 
         let dirt = Block::new(
             "dirt",
-            [[4, 0], [4, 0], [4, 0], [4, 0], [4, 0], [4, 0]],
+            //[[4, 0], [4, 0], [4, 0], [4, 0], [4, 0], [4, 0]],
+            //[[3, 0], [3, 0], [3, 0], [3, 0], [3, 0], [3, 0]],
+            [[1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0]],
             BlockType::Dirt,
         );
         all_block[dirt.block_type as usize] = dirt;
@@ -351,15 +329,20 @@ impl RealmData {
         //创建草方块
         let grass = Block::new(
             "grass",
-            [[3, 0], [2, 0], [3, 0], [4, 0], [3, 0], [3, 0]],
+            //[[3, 0], [2, 0], [3, 0], [4, 0], [3, 0], [3, 0]],
+            //[[4, 0], [4, 0], [4, 0], [4, 0], [4, 0], [4, 0]],
+            //[[3, 0], [3, 0], [3, 0], [3, 0], [3, 0], [3, 0]],
+            [[1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0]],
             BlockType::Grass,
         );
-        all_block[grass.block_type as usize] = dirt;
+        all_block[grass.block_type as usize] = grass;
         //草方块创建完成
         let mut chunks: Vec<Chunk> = Vec::new();
 
+        println!("{:#?}", all_block);
+
         let mut instances: Vec<Vec<Instance>> = Vec::new();
-        for _i in 0..BLOCK_NUM {
+        for _ in 0..BLOCK_NUM {
             instances.push(Vec::new());
         }
 
@@ -373,14 +356,21 @@ impl RealmData {
                     // if z > 9 {
                     //     chunk.set_block_type(x, y, z, BlockType::Empty);
                     // } else if z == 9 {
-                    if y == 3 {
-                        chunk.set_block_type(x, y, z, BlockType::Grass);
-                    } else if y == 2 {
-                        chunk.set_block_type(x, y, z, BlockType::Dirt);
-                    } else if y == 1 {
-                        chunk.set_block_type(x, y, z, BlockType::Stone);
-                    } else if y == 0 {
+                    //if y == 3 {
+                    //    chunk.set_block_type(x, y, z, BlockType::Grass);
+                    //} else if y == 2 {
+                    //    chunk.set_block_type(x, y, z, BlockType::Dirt);
+                    //} else if y == 1 {
+                    //    chunk.set_block_type(x, y, z, BlockType::Stone);
+                    //} else if y == 0 {
+                    //    chunk.set_block_type(x, y, z, BlockType::UnderStone);
+                    //}
+                    if x == 1 && y == 0 && z == 0 {
                         chunk.set_block_type(x, y, z, BlockType::UnderStone);
+                    } else if x == 0 && y == 1 && z == 0 {
+                        chunk.set_block_type(x, y, z, BlockType::Grass);
+                    } else if x == 0 && y == 0 && z == 1 {
+                        chunk.set_block_type(x, y, z, BlockType::Stone);
                     }
                 }
             }
@@ -391,22 +381,25 @@ impl RealmData {
             for x in 0..CHUNK_SIZE {
                 for y in 0..CHUNK_HEIGHT {
                     for z in 0..CHUNK_SIZE {
-                        instances[chunk.get_block_type(x, y, z) as usize].push(Instance {
-                            position: [x as f32, y as f32, z as f32],
-                        });
+                        let tp = chunk.get_block_type(x, y, z);
+                        if tp != BlockType::Empty {
+                            instances[tp as usize].push(Instance {
+                                position: [x as f32, y as f32, z as f32],
+                            });
+                        }
                     }
                 }
             }
         }
 
         let wf_uniform = WireframeUniform {
-            position: [-1.0, -1.0, -1.0],
+            position: [-1.0, 0.0, 0.0],
             _padding: 0.0,
         };
 
         let wf_max_len: f32 = 6.0;
 
-        let is_wf_visible = false;
+        let is_wf_visible = true;
 
         let center_chunk_pos = Point2 { x: 0, y: 0 };
 
@@ -453,6 +446,7 @@ impl RealmData {
 }
 
 pub struct RenderResources {
+    pub wf_vertices: Vec<WireframeVertex>,
     pub wf_vertex_buffer: Buffer,
     pub wf_index_buffer: Buffer,
     pub instance_buffers: Vec<Buffer>,
@@ -486,9 +480,11 @@ impl RenderResources {
             }));
         }
 
+        let wf_vertices = create_wf_vertices();
+
         let wf_vertex_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
             label: Some("wireframe vertex buffer"),
-            contents: bytemuck::cast_slice(&WIREFRAME_VERTICES[..]),
+            contents: bytemuck::cast_slice(&wf_vertices),
             usage: BufferUsages::VERTEX,
         });
 
@@ -505,19 +501,21 @@ impl RenderResources {
         });
 
         let mut instance_buffers: Vec<Buffer> = Vec::new();
-        for i in 0..BLOCK_NUM {
+        for i in 1..BLOCK_NUM {
             instance_buffers.push(device.create_buffer_init(&util::BufferInitDescriptor {
                 label: Some("Block buffer"),
                 contents: bytemuck::cast_slice(&data.instances[i]),
                 usage: BufferUsages::VERTEX,
             }));
         }
+
         Self {
             block_vertex_buffers,
             wf_index_buffer,
             wf_vertex_buffer,
             wf_uniform_buffer,
             instance_buffers,
+            wf_vertices,
         }
     }
 }
@@ -547,4 +545,103 @@ mod tests {
         assert_eq!(data.get_block_type(0, 3, 0), BlockType::Grass);
         assert_eq!(data.get_block_type(0, 0, -1), BlockType::Empty);
     }
+}
+
+fn create_wf_vertices() -> Vec<WireframeVertex> {
+    //方块8顶点
+    let mut v8 = vec![
+        //顶面4顶点，从上往下看，顺时针方向
+        WireframeVertex {
+            position: [0.0, 1.0, 0.0],
+        },
+        WireframeVertex {
+            position: [0.0, 1.0, 1.0],
+        },
+        WireframeVertex {
+            position: [1.0, 1.0, 1.0],
+        },
+        WireframeVertex {
+            position: [1.0, 1.0, 0.0],
+        },
+        //底面4顶点，还是同样顺序
+        WireframeVertex {
+            position: [0.0, 0.0, 0.0],
+        },
+        WireframeVertex {
+            position: [0.0, 0.0, 1.0],
+        },
+        WireframeVertex {
+            position: [1.0, 0.0, 1.0],
+        },
+        WireframeVertex {
+            position: [1.0, 0.0, 0.0],
+        },
+    ];
+
+    let dir8 = vec![
+        Vector3 { x: 1, y: -1, z: 1 },
+        Vector3 { x: 1, y: -1, z: -1 },
+        Vector3 {
+            x: -1,
+            y: -1,
+            z: -1,
+        },
+        Vector3 { x: -1, y: -1, z: 1 },
+        //底面4个
+        Vector3 { x: 1, y: 1, z: 1 },
+        Vector3 { x: 1, y: 1, z: -1 },
+        Vector3 { x: -1, y: 1, z: -1 },
+        Vector3 { x: -1, y: 1, z: 1 },
+    ];
+
+    let mut v32: Vec<WireframeVertex> = Vec::new();
+
+    for (i, v) in v8.iter_mut().enumerate() {
+        if dir8[i].x > 0 {
+            v.position[0] -= WF_SIZE;
+        } else {
+            v.position[0] += WF_SIZE;
+        }
+
+        if dir8[i].y > 0 {
+            v.position[1] -= WF_SIZE;
+        } else {
+            v.position[1] += WF_SIZE;
+        }
+
+        if dir8[i].z > 0 {
+            v.position[2] -= WF_SIZE;
+        } else {
+            v.position[2] += WF_SIZE;
+        }
+
+        v32.push(*v);
+
+        let mut new_v = *v;
+        if dir8[i].x > 0 {
+            new_v.position[0] += WF_WIDTH;
+        } else {
+            new_v.position[0] -= WF_WIDTH;
+        }
+        v32.push(new_v);
+
+        new_v = *v;
+        if dir8[i].y > 0 {
+            new_v.position[1] += WF_WIDTH;
+        } else {
+            new_v.position[1] -= WF_WIDTH;
+        }
+        v32.push(new_v);
+
+        new_v = *v;
+        if dir8[i].z > 0 {
+            new_v.position[2] += WF_WIDTH;
+        } else {
+            new_v.position[2] -= WF_WIDTH;
+        }
+        v32.push(new_v);
+    }
+
+    //println!("{:#?}", v32);
+    v32
 }
