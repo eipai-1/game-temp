@@ -210,20 +210,20 @@ impl CameraController {
             camera.position.y -= self.speed * dt;
         };
 
-        match update_wf(camera, data) {
-            Some(new_position) => {
-                data.is_wf_visible = true;
-                data.update_wf_uniform(new_position);
-            }
-            None => {
-                data.is_wf_visible = false;
-            }
-        }
+        update_wf(camera, data);
     }
 }
 
-fn update_wf(camera: &Camera, data: &realm::RealmData) -> Option<Point3<i32>> {
-    dda(camera.direction(), camera.position, data)
+fn update_wf(camera: &Camera, data: &mut realm::RealmData) {
+    match dda(camera.direction(), camera.position, data) {
+        Some(new_position) => {
+            data.is_wf_visible = true;
+            data.update_wf_uniform(new_position);
+        }
+        None => {
+            data.is_wf_visible = false;
+        }
+    }
 }
 
 fn dda(dir: Vector3<f32>, position: Point3<f32>, data: &realm::RealmData) -> Option<Point3<i32>> {
@@ -284,14 +284,14 @@ fn dda(dir: Vector3<f32>, position: Point3<f32>, data: &realm::RealmData) -> Opt
 #[cfg(test)]
 mod tests {
     use crate::{
-        camera::{update_wf, Camera},
+        camera::{dda, Camera},
         realm,
     };
     use cgmath::*;
 
     #[test]
     fn test_dda() {
-        let data = realm::RealmData::new();
+        let mut data = realm::RealmData::new();
         let dir: Vector3<f32> = Vector3 {
             x: 0.0,
             y: 0.0,
@@ -305,6 +305,9 @@ mod tests {
 
         let camera = Camera::new(position, Deg(0.0), Deg(45.0));
         let ans = Point3 { x: 0, y: 1, z: 0 };
-        assert_eq!(update_wf(&camera, &data).unwrap(), ans);
+        assert_eq!(
+            dda(camera.direction(), camera.position, &mut data).unwrap(),
+            ans
+        );
     }
 }

@@ -354,7 +354,7 @@ impl RealmData {
             [[3, 0], [2, 0], [3, 0], [4, 0], [3, 0], [3, 0]],
             BlockType::Grass,
         );
-        all_block[grass.block_type as usize] = dirt;
+        all_block[grass.block_type as usize] = grass;
         //草方块创建完成
         let mut chunks: Vec<Chunk> = Vec::new();
 
