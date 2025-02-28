@@ -448,11 +448,20 @@ impl RealmData {
         let chunk_z = (z as f32 / CHUNK_SIZE as f32).floor() as i32;
 
         let i32_size = CHUNK_SIZE as i32;
-        x = (x + i32_size) % i32_size;
-        z = (z + i32_size) % i32_size;
+        x = x.rem_euclid(i32_size);
+        z = z.rem_euclid(i32_size);
 
         //println!("chunk_x:{}, chunk_z:{} ", chunk_x, chunk_z);
         //println!("x={}, y={}, z={}", x, y, z);
+        if x < 0 || z < 0 {
+            panic!("PANIC! x or z less than zero: x={},z={}", x, z);
+        }
+
+        //对纵坐标位于区块外的方块，统一检测为虚空
+        //区块范围为[0, CHUNK_HEIGHT]
+        if y < 0 || y >= CHUNK_HEIGHT as i32 {
+            return BlockType::Empty;
+        }
 
         for chunk in &self.chunks {
             if chunk.x == chunk_x && chunk.z == chunk_z {
@@ -649,7 +658,7 @@ fn generate_wf_vertices() -> Vec<WireframeVertex> {
         v32.push(new_v);
     }
 
-    println!("{:#?}", v32);
+    //println!("{:#?}", v32);
     v32
 }
 

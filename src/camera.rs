@@ -10,6 +10,8 @@ use crate::realm;
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.0001;
 
+const ZERO: f32 = 1e-6;
+
 #[derive(Debug)]
 pub struct Camera {
     pub position: Point3<f32>,
@@ -228,7 +230,7 @@ fn update_wf(camera: &Camera, data: &mut realm::RealmData) {
 
 fn dda(dir: Vector3<f32>, position: Point3<f32>, data: &realm::RealmData) -> Option<Point3<i32>> {
     let mut cur_block = position.map(|x| x.floor() as i32);
-    //println!("{:#?}", cur_block);
+    //println!("cur_block:{:?}", cur_block);
 
     //如果当前卡在方块里面，就不进行射线检测
     if data.get_block_type(cur_block.x, cur_block.y, cur_block.z) != realm::BlockType::Empty {
@@ -236,13 +238,56 @@ fn dda(dir: Vector3<f32>, position: Point3<f32>, data: &realm::RealmData) -> Opt
         return None;
     }
 
-    let t_delta = dir.map(|x| 1.0 / x.abs());
+    let step = dir.map(|x| if x > 0.0 { 1 } else { -1 });
 
-    let mut t: Point3<f32> = Point3::new(0.0, 0.0, 0.0);
+    let t_delta = dir.map(|x| {
+        if x.abs() < 1e-6 {
+            f32::INFINITY
+        } else {
+            1.0 / x.abs()
+        }
+    });
 
-    t.x = (position.x - cur_block.x as f32) / dir.x;
-    t.y = (position.y - cur_block.y as f32) / dir.y;
-    t.z = (position.z - cur_block.z as f32) / dir.z;
+    let mut t = Vector3::new(0.0, 0.0, 0.0);
+
+    //println!("position: {:#?}", position);
+    //t = dir.zip(cur_block, |a, b| {
+    //    if a.abs() < ZERO {
+    //        f32::INFINITY
+    //    } else {
+    //        if b > 0 {
+    //
+    //        }
+    //    }
+    //});
+    if dir.x.abs() < ZERO {
+        t.x = f32::INFINITY;
+    } else {
+        if step.x > 0 {
+            t.x = (cur_block.x as f32 + 1.0 - position.x) / dir.x;
+        } else {
+            t.x = (cur_block.x as f32 - position.x) / dir.x
+        }
+    }
+    if dir.y.abs() < ZERO {
+        t.y = f32::INFINITY;
+    } else {
+        if step.y > 0 {
+            t.y = (cur_block.y as f32 + 1.0 - position.y) / dir.y;
+        } else {
+            t.y = (cur_block.y as f32 - position.y) / dir.y
+        }
+    }
+    if dir.z.abs() < ZERO {
+        t.z = f32::INFINITY;
+    } else {
+        if step.z > 0 {
+            t.z = (cur_block.z as f32 + 1.0 - position.z) / dir.z;
+        } else {
+            t.z = (cur_block.z as f32 - position.z) / dir.z
+        }
+    }
+    //println!("t:{:#?}", t);
 
     let mut traveled = 0.0;
 
@@ -252,26 +297,26 @@ fn dda(dir: Vector3<f32>, position: Point3<f32>, data: &realm::RealmData) -> Opt
             return Some(cur_block);
         }
 
-        //找出最大的坐标轴
+        //找出最小的坐标轴
         #[rustfmt::skip]
-            let axis = if t.x > t.y {
-                if t.x > t.z {0} else {2}
+            let axis = if t.x < t.y {
+                if t.x < t.z {0} else {1}
             } else {
-                if t.y > t.z {1} else {2}
+                if t.y < t.z {1} else {2}
             };
 
         match axis {
             0 => {
-                cur_block.x += 1;
-                t.x += t_delta.x;
+                cur_block.x += 1 * step.x;
+                t.x += t_delta.x as f32;
             }
             1 => {
-                cur_block.y += 1;
-                t.y += t_delta.y;
+                cur_block.y += 1 * step.y;
+                t.y += t_delta.y as f32;
             }
             2 => {
-                cur_block.z += 1;
-                t.z += t_delta.z;
+                cur_block.z += 1 * step.z;
+                t.z += t_delta.z as f32;
             }
             _ => {}
         }
@@ -290,23 +335,35 @@ mod tests {
     use cgmath::*;
 
     #[test]
-    fn test_dda() {
+    fn test_dda1() {
         let mut data = realm::RealmData::new();
         let dir: Vector3<f32> = Vector3 {
             x: 0.0,
             y: 0.0,
             z: 1.0,
         };
-        let position = Point3 {
+        let mut position = Point3 {
             x: 0.5,
             y: 0.5,
             z: -1.0,
         };
 
-        let camera = Camera::new(position, Deg(0.0), Deg(45.0));
-        let ans = Point3 { x: 0, y: 1, z: 0 };
+        let mut camera = Camera::new(position, Deg(90.0), Deg(45.0));
+        let mut ans = Point3 { x: 0, y: 1, z: 0 };
         assert_eq!(
             dda(camera.direction(), camera.position, &mut data).unwrap(),
+            ans
+        );
+
+        position = Point3 {
+            x: 0.5,
+            y: 1.5,
+            z: -1.0,
+        };
+        camera = Camera::new(position, Deg(90.0), Deg(-45.0));
+        ans = Point3 { x: 0, y: 0, z: 0 };
+        assert_eq!(
+            dda(camera.direction(), camera.position, &data).unwrap(),
             ans
         );
     }
