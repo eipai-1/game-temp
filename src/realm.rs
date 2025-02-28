@@ -117,6 +117,9 @@ pub const VERTICES: &[Vertex] = &[
     },
 ];
 
+const WF_SIZE: f32 = 0.01;
+const WF_WIDTH: f32 = 0.1;
+
 #[rustfmt::skip]
 pub const INDICES: &[u16] = &[
     0,  1,  2,  0,  2,  3, /* 之后每个加4就行 */ 
@@ -127,38 +130,43 @@ pub const INDICES: &[u16] = &[
     20, 21, 22, 20, 22, 23,
 ];
 
-pub const WIREFRAME_VERTICES: &[WireframeVertex] = &[
-    WireframeVertex {
-        position: [0.0, 1.001, 0.0],
-    },
-    WireframeVertex {
-        position: [1.001, 1.001, 0.0],
-    },
-    WireframeVertex {
-        position: [1.001, 1.001, 1.001],
-    },
-    WireframeVertex {
-        position: [0.0, 1.001, 1.001],
-    },
-    WireframeVertex {
-        position: [0.0, 0.0, 0.0],
-    },
-    WireframeVertex {
-        position: [1.001, 0.0, 0.0],
-    },
-    WireframeVertex {
-        position: [1.001, 0.0, 1.001],
-    },
-    WireframeVertex {
-        position: [0.0, 0.0, 1.001],
-    },
-];
-
 #[rustfmt::skip]
 pub const WIREFRAME_INDCIES: &[u16] = &[
-    0, 1, 1, 2, 2, 3, 3, 0,
-    0, 4, 1, 5, 2, 6, 3, 7,
-    4, 5, 5, 6, 6, 7, 7, 4,
+    //顶面
+    0,  4,  7,  7,  3,  0,
+    5,  4,  8,  5,  8,  9,
+    15, 11, 8,  15, 8,  12,
+    0,  1,  13, 0,  13, 12,
+
+    //正面
+    12, 8,  10, 12, 10, 14,
+    9,  8,  24, 9,  24, 25,
+    30, 26, 24, 30, 24, 28,
+    12, 13, 29, 12, 29, 28,
+
+    //后
+    4,  0,  2,  4,  2,  6,
+    1,  0,  16, 1,  16, 17,
+    22, 18, 16, 22, 16, 20,
+    4,  5,  21, 4,  21, 20,
+
+    //下
+    28, 24, 27, 28, 27, 31,
+    25, 24, 20, 25, 20, 21,
+    19, 23, 20, 19, 20, 16,
+    28, 29, 17, 28, 17, 16,
+
+    //左
+    0,  12, 14, 0,  14, 2,
+    15, 12, 28, 15, 28, 31,
+    18, 30, 28, 18, 28, 16,
+    0,  3,  19, 0,  19, 16,
+
+    //右
+    8,  4,  6,  8,  6,  10,
+    7,  4,  20, 7,  20, 23,
+    26, 22, 20, 26, 20, 24,
+    8,  11, 27, 8,  27, 24,
 ];
 
 const CHUNK_SIZE: usize = 4;
@@ -373,24 +381,26 @@ impl RealmData {
                     // if z > 9 {
                     //     chunk.set_block_type(x, y, z, BlockType::Empty);
                     // } else if z == 9 {
-                    //if y == 3 {
-                    //    chunk.set_block_type(x, y, z, BlockType::Grass);
-                    //} else if y == 2 {
-                    //    chunk.set_block_type(x, y, z, BlockType::Dirt);
-                    //} else if y == 1 {
-                    //    chunk.set_block_type(x, y, z, BlockType::Stone);
-                    //} else if y == 0 {
-                    //    chunk.set_block_type(x, y, z, BlockType::UnderStone);
-                    //}
-                    if x == 0 && y == 0 && z == 0 {
-                        chunk.set_block_type(x, y, z, BlockType::Dirt);
-                    } else if x == 1 && y == 0 && z == 0 {
-                        chunk.set_block_type(x, y, z, BlockType::UnderStone);
-                    } else if x == 0 && y == 1 && z == 0 {
+                    if y == 3 {
                         chunk.set_block_type(x, y, z, BlockType::Grass);
-                    } else if x == 0 && y == 0 && z == 1 {
+                    } else if y == 2 {
+                        chunk.set_block_type(x, y, z, BlockType::Dirt);
+                    } else if y == 1 {
                         chunk.set_block_type(x, y, z, BlockType::Stone);
+                    } else if y == 0 {
+                        chunk.set_block_type(x, y, z, BlockType::UnderStone);
                     }
+
+                    //游戏使用右手坐标系 拿出右手，食指方向为y轴，大拇指方向为x轴时，此时中指方向为z轴
+                    //if x == 0 && y == 0 && z == 0 {
+                    //    chunk.set_block_type(x, y, z, BlockType::Dirt);
+                    //} else if x == 1 && y == 0 && z == 0 {
+                    //    chunk.set_block_type(x, y, z, BlockType::UnderStone);
+                    //} else if x == 0 && y == 1 && z == 0 {
+                    //    chunk.set_block_type(x, y, z, BlockType::Grass);
+                    //} else if x == 0 && y == 0 && z == 1 {
+                    //    chunk.set_block_type(x, y, z, BlockType::Stone);
+                    //}
                 }
             }
         }
@@ -412,13 +422,13 @@ impl RealmData {
         }
 
         let wf_uniform = WireframeUniform {
-            position: [-1.0, -1.0, -1.0],
+            position: [0.0, 0.0, 0.0],
             _padding: 0.0,
         };
 
         let wf_max_len: f32 = 6.0;
 
-        let is_wf_visible = false;
+        let is_wf_visible = true;
 
         let center_chunk_pos = Point2 { x: 0, y: 0 };
 
@@ -465,6 +475,7 @@ impl RealmData {
 }
 
 pub struct RenderResources {
+    //pub wf_vertices: Vec<WireframeVertex>,
     pub wf_vertex_buffer: Buffer,
     pub wf_index_buffer: Buffer,
     pub instance_buffers: Vec<Buffer>,
@@ -498,9 +509,11 @@ impl RenderResources {
             }));
         }
 
+        let wf_vertices = generate_wf_vertices();
+
         let wf_vertex_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
             label: Some("wireframe vertex buffer"),
-            contents: bytemuck::cast_slice(&WIREFRAME_VERTICES[..]),
+            contents: bytemuck::cast_slice(&wf_vertices),
             usage: BufferUsages::VERTEX,
         });
 
@@ -530,6 +543,7 @@ impl RenderResources {
             wf_vertex_buffer,
             wf_uniform_buffer,
             instance_buffers,
+            //wf_vertices,
         }
     }
 }
@@ -541,6 +555,102 @@ impl Realm {
 
         Self { data, render_res }
     }
+}
+
+fn generate_wf_vertices() -> Vec<WireframeVertex> {
+    //方块8顶点
+    let mut v8 = vec![
+        //顶面4顶点，从上往下看，顺时针方向，从落在y轴上的点开始
+        WireframeVertex {
+            position: [0.0, 1.0, 0.0],
+        },
+        WireframeVertex {
+            position: [1.0, 1.0, 0.0],
+        },
+        WireframeVertex {
+            position: [1.0, 1.0, 1.0],
+        },
+        WireframeVertex {
+            position: [0.0, 1.0, 1.0],
+        },
+        //底面4顶点，还是同样顺序
+        WireframeVertex {
+            position: [0.0, 0.0, 0.0],
+        },
+        WireframeVertex {
+            position: [1.0, 0.0, 0.0],
+        },
+        WireframeVertex {
+            position: [1.0, 0.0, 1.0],
+        },
+        WireframeVertex {
+            position: [0.0, 0.0, 1.0],
+        },
+    ];
+
+    #[rustfmt::skip]
+    let dir8 = vec![
+        Vector3 { x: 1, y: -1, z: 1 },
+        Vector3 { x: -1, y: -1, z: 1 },
+        Vector3 { x: -1, y: -1, z: -1 },
+        Vector3 { x: 1, y: -1, z: -1 },
+        //底面4个
+        Vector3 { x: 1, y: 1, z: 1 },
+        Vector3 { x: -1, y: 1, z: 1 },
+        Vector3 { x: -1, y: 1, z: -1 },
+        Vector3 { x: 1, y: 1, z: -1 },
+    ];
+
+    let mut v32: Vec<WireframeVertex> = Vec::new();
+
+    for (i, v) in v8.iter_mut().enumerate() {
+        if dir8[i].x > 0 {
+            v.position[0] -= WF_SIZE;
+        } else {
+            v.position[0] += WF_SIZE;
+        }
+
+        if dir8[i].y > 0 {
+            v.position[1] -= WF_SIZE;
+        } else {
+            v.position[1] += WF_SIZE;
+        }
+
+        if dir8[i].z > 0 {
+            v.position[2] -= WF_SIZE;
+        } else {
+            v.position[2] += WF_SIZE;
+        }
+
+        v32.push(*v);
+
+        let mut new_v = *v;
+        if dir8[i].x > 0 {
+            new_v.position[0] += WF_WIDTH;
+        } else {
+            new_v.position[0] -= WF_WIDTH;
+        }
+        v32.push(new_v);
+
+        new_v = *v;
+        if dir8[i].y > 0 {
+            new_v.position[1] += WF_WIDTH;
+        } else {
+            new_v.position[1] -= WF_WIDTH;
+        }
+        v32.push(new_v);
+
+        new_v = *v;
+        if dir8[i].z > 0 {
+            new_v.position[2] += WF_WIDTH;
+        } else {
+            new_v.position[2] -= WF_WIDTH;
+        }
+        v32.push(new_v);
+    }
+
+    println!("{:#?}", v32);
+    v32
 }
 
 #[cfg(test)]

@@ -307,12 +307,12 @@ impl State {
                         compilation_options: PipelineCompilationOptions::default(),
                     },
                     primitive: PrimitiveState {
-                        topology: PrimitiveTopology::LineList,
+                        topology: PrimitiveTopology::TriangleList,
                         strip_index_format: None,
                         front_face: FrontFace::Cw,
                         cull_mode: Some(Face::Back),
                         unclipped_depth: false,
-                        polygon_mode: PolygonMode::Line,
+                        polygon_mode: PolygonMode::Fill,
                         conservative: false,
                     },
                     depth_stencil: Some(DepthStencilState {
