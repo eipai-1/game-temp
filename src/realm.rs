@@ -373,14 +373,23 @@ impl RealmData {
                     // if z > 9 {
                     //     chunk.set_block_type(x, y, z, BlockType::Empty);
                     // } else if z == 9 {
-                    if y == 3 {
-                        chunk.set_block_type(x, y, z, BlockType::Grass);
-                    } else if y == 2 {
+                    //if y == 3 {
+                    //    chunk.set_block_type(x, y, z, BlockType::Grass);
+                    //} else if y == 2 {
+                    //    chunk.set_block_type(x, y, z, BlockType::Dirt);
+                    //} else if y == 1 {
+                    //    chunk.set_block_type(x, y, z, BlockType::Stone);
+                    //} else if y == 0 {
+                    //    chunk.set_block_type(x, y, z, BlockType::UnderStone);
+                    //}
+                    if x == 0 && y == 0 && z == 0 {
                         chunk.set_block_type(x, y, z, BlockType::Dirt);
-                    } else if y == 1 {
-                        chunk.set_block_type(x, y, z, BlockType::Stone);
-                    } else if y == 0 {
+                    } else if x == 1 && y == 0 && z == 0 {
                         chunk.set_block_type(x, y, z, BlockType::UnderStone);
+                    } else if x == 0 && y == 1 && z == 0 {
+                        chunk.set_block_type(x, y, z, BlockType::Grass);
+                    } else if x == 0 && y == 0 && z == 1 {
+                        chunk.set_block_type(x, y, z, BlockType::Stone);
                     }
                 }
             }
