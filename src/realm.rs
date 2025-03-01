@@ -1,3 +1,7 @@
+use std::path::Path;
+
+use anyhow::Context;
+use serde::{Deserialize, Serialize};
 use wgpu::{util::DeviceExt, *};
 
 const BLOCK_NUM: usize = 5;
@@ -172,8 +176,10 @@ pub const WIREFRAME_INDCIES: &[u16] = &[
 const CHUNK_SIZE: usize = 4;
 const CHUNK_HEIGHT: usize = 16;
 
+const WORLD_FILE_DIR: &str = "./worlds";
+
 #[repr(usize)]
-#[derive(Clone, Copy, Default, Debug, PartialEq)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub enum BlockType {
     //没有方块 默认值
     #[default]
@@ -291,6 +297,7 @@ impl Instance {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Chunk {
     blocks: Vec<BlockType>,
     x: i32,
@@ -304,6 +311,40 @@ impl Chunk {
 
     fn set_block_type(&mut self, x: usize, y: usize, z: usize, block_type: BlockType) {
         self.blocks[x * CHUNK_SIZE * CHUNK_HEIGHT + y * CHUNK_SIZE + z] = block_type;
+    }
+
+    fn save(&self, world_dir: &str) -> anyhow::Result<()> {
+        let path = Path::new(world_dir)
+            .join("chunks")
+            .join(format!("x{}", self.x))
+            .join(format!("y{}.chunk", self.z));
+
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).context("创建区块目录失败")?;
+        }
+
+        let encoded = bincode::serialize(self).context("区块序列化失败")?;
+
+        std::fs::write(&path, encoded).context("写入区块失败")?;
+
+        Ok(())
+    }
+
+    fn load(world_dir: &str, x: i32, z: i32) -> anyhow::Result<Self> {
+        let path = Path::new(world_dir)
+            .join("chunks")
+            .join(format!("x{}", x))
+            .join(format!("y{}.chunk", z));
+
+        let data = std::fs::read(&path).context("读取区块文件失败")?;
+
+        let chunk: Chunk = bincode::deserialize(&data).context("解析区块数据失败")?;
+
+        if chunk.blocks.len() != CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT {
+            anyhow::bail!("区块数据损坏：方块数量不匹配");
+        }
+
+        Ok(chunk)
     }
 }
 
@@ -322,6 +363,8 @@ pub struct RealmData {
     pub is_wf_visible: bool,
 
     pub center_chunk_pos: Point2<i32>,
+
+    pub name: &'static str,
 }
 
 impl RealmData {
@@ -426,11 +469,13 @@ impl RealmData {
             _padding: 0.0,
         };
 
-        let wf_max_len: f32 = 10.0;
+        let wf_max_len: f32 = 8.0;
 
         let is_wf_visible = true;
 
         let center_chunk_pos = Point2 { x: 0, y: 0 };
+
+        let name = "./data/worlds/default_name_1";
 
         Self {
             all_block,
@@ -440,6 +485,7 @@ impl RealmData {
             wf_max_len,
             is_wf_visible,
             center_chunk_pos,
+            name,
         }
     }
 
@@ -667,6 +713,7 @@ mod tests {
     use crate::realm::BlockType;
 
     use super::RealmData;
+    use super::*;
 
     #[test]
     fn test_get_set_block_type() {
@@ -677,5 +724,15 @@ mod tests {
         assert_eq!(data.get_block_type(0, 2, 0), BlockType::Dirt);
         assert_eq!(data.get_block_type(0, 3, 0), BlockType::Grass);
         assert_eq!(data.get_block_type(0, 0, -1), BlockType::Empty);
+    }
+
+    #[test]
+    fn test_chunk_file() -> anyhow::Result<()> {
+        let data = RealmData::new();
+        data.chunks[0].save(data.name)?;
+
+        let chunk = Chunk::load(data.name, 0, 0).unwrap();
+        assert_eq!(chunk, data.chunks[0]);
+        Ok(())
     }
 }
