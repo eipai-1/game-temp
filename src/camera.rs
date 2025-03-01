@@ -228,101 +228,66 @@ fn update_wf(camera: &Camera, data: &mut realm::RealmData) {
     }
 }
 
-fn dda(dir: Vector3<f32>, position: Point3<f32>, data: &realm::RealmData) -> Option<Point3<i32>> {
-    let mut cur_block = position.map(|x| x.floor() as i32);
-    //println!("cur_block:{:?}", cur_block);
+fn dda(
+    direction: Vector3<f32>,
+    origin: Point3<f32>,
+    data: &realm::RealmData,
+) -> Option<Point3<i32>> {
+    const EPSILON: f32 = 1e-6;
 
-    //如果当前卡在方块里面，就不进行射线检测
-    if data.get_block_type(cur_block.x, cur_block.y, cur_block.z) != realm::BlockType::Empty {
-        //println!("stuck");
-        return None;
-    }
+    let mut current_voxel = origin.map(|x| x.floor() as i32);
 
-    let step = dir.map(|x| if x > 0.0 { 1 } else { -1 });
+    let step = direction.map(|x| if x > 0.0 { 1 } else { -1 });
 
-    let t_delta = dir.map(|x| {
-        if x.abs() < 1e-6 {
-            f32::INFINITY
-        } else {
-            1.0 / x.abs()
-        }
-    });
+    let (mut t_max, t_delta) = {
+        let mut t_max = Vector3::zero();
+        let mut t_delta = Vector3::zero();
 
-    let mut t = Vector3::new(0.0, 0.0, 0.0);
+        for i in 0..3 {
+            let dir_component = direction[i];
+            let origin_component = origin[i];
+            let cv_component = current_voxel[i] as f32;
 
-    //println!("position: {:#?}", position);
-    //t = dir.zip(cur_block, |a, b| {
-    //    if a.abs() < ZERO {
-    //        f32::INFINITY
-    //    } else {
-    //        if b > 0 {
-    //
-    //        }
-    //    }
-    //});
-    if dir.x.abs() < ZERO {
-        t.x = f32::INFINITY;
-    } else {
-        if step.x > 0 {
-            t.x = (cur_block.x as f32 + 1.0 - position.x) / dir.x;
-        } else {
-            t.x = (cur_block.x as f32 - position.x) / dir.x
-        }
-    }
-    if dir.y.abs() < ZERO {
-        t.y = f32::INFINITY;
-    } else {
-        if step.y > 0 {
-            t.y = (cur_block.y as f32 + 1.0 - position.y) / dir.y;
-        } else {
-            t.y = (cur_block.y as f32 - position.y) / dir.y
-        }
-    }
-    if dir.z.abs() < ZERO {
-        t.z = f32::INFINITY;
-    } else {
-        if step.z > 0 {
-            t.z = (cur_block.z as f32 + 1.0 - position.z) / dir.z;
-        } else {
-            t.z = (cur_block.z as f32 - position.z) / dir.z
-        }
-    }
-    //println!("t:{:#?}", t);
-
-    let mut traveled = 0.0;
-
-    while traveled < data.wf_max_len {
-        let tp = data.get_block_type(cur_block.x, cur_block.y, cur_block.z);
-        if tp != realm::BlockType::Empty {
-            return Some(cur_block);
-        }
-
-        //找出最小的坐标轴
-        #[rustfmt::skip]
-            let axis = if t.x < t.y {
-                if t.x < t.z {0} else {2}
+            if dir_component.abs() < EPSILON {
+                t_max[i] = f32::INFINITY;
+                t_delta[i] = f32::INFINITY;
             } else {
-                if t.y < t.z {1} else {2}
-            };
+                let next_bound = if dir_component > 0.0 {
+                    cv_component + 1.0
+                } else {
+                    cv_component
+                };
+                t_max[i] = (next_bound - origin_component) / dir_component;
+                t_delta[i] = 1.0 / dir_component.abs();
+            }
+        }
+        (t_max, t_delta)
+    };
 
-        match axis {
-            0 => {
-                cur_block.x += 1 * step.x;
-                t.x += t_delta.x as f32;
-            }
-            1 => {
-                cur_block.y += 1 * step.y;
-                t.y += t_delta.y as f32;
-            }
-            2 => {
-                cur_block.z += 1 * step.z;
-                t.z += t_delta.z as f32;
-            }
-            _ => {}
+    for _ in 0..data.wf_max_len as u32 {
+        let tp = data.get_block_type(current_voxel.x, current_voxel.y, current_voxel.z);
+        if tp != realm::BlockType::Empty {
+            return Some(current_voxel);
         }
 
-        traveled += t[axis];
+        let axis = if t_max.x < t_max.y {
+            if t_max.x < t_max.z {
+                0
+            } else {
+                2
+            }
+        } else {
+            if t_max.y < t_max.z {
+                1
+            } else {
+                2
+            }
+        };
+
+        current_voxel[axis] += step[axis];
+        t_max[axis] += t_delta[axis];
     }
+
     None
 }
 
