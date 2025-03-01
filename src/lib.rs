@@ -1,3 +1,4 @@
+use instant::Instant;
 use pollster::FutureExt;
 use std::{iter, sync::Arc};
 use util::DeviceExt;
@@ -13,6 +14,7 @@ use winit::{
 
 mod basic_config;
 pub mod camera;
+mod game_config;
 pub mod realm;
 mod texture;
 
@@ -63,14 +65,13 @@ struct State {
 
     realm: realm::Realm,
     wf_render_pipeline: RenderPipeline,
+
+    game_config: game_config::GameConfig,
 }
 
 impl State {
     async fn new(window: Window) -> Self {
         let window = Arc::new(window);
-
-        let dt: f64 = 0.001;
-        let last_render_time = instant::Instant::now();
 
         //基础配置
         let basic_config = basic_config::BasicConfig::new(Arc::clone(&window)).await;
@@ -342,6 +343,11 @@ impl State {
                 });
         //线框创建完成
 
+        let game_config = game_config::GameConfig::new();
+
+        let dt: f64 = 0.001;
+        let last_render_time = instant::Instant::now();
+
         Self {
             basic_config,
             window,
@@ -364,6 +370,8 @@ impl State {
 
             realm,
             wf_render_pipeline,
+
+            game_config,
         }
     }
 
@@ -401,9 +409,6 @@ impl State {
     }
 
     fn update(&mut self) {
-        self.dt = (instant::Instant::now() - self.last_render_time).as_secs_f64();
-        self.last_render_time = instant::Instant::now();
-
         self.camera_controller.update_camera(
             &mut self.camera,
             self.dt as f32,
@@ -535,9 +540,7 @@ impl ApplicationHandler for App {
         if let Some(state) = self.state.as_mut() {
             //如果为真则代表为输入事件，且此方法会处理输入事件。此时则完成处理，不需要在继续处理
             //否则继续处理
-            if state.input(&event) {
-                return;
-            }
+            state.input(&event);
         }
         match event {
             WindowEvent::CloseRequested
@@ -552,6 +555,10 @@ impl ApplicationHandler for App {
             } => event_loop.exit(),
             WindowEvent::RedrawRequested => {
                 if let Some(state) = self.state.as_mut() {
+                    let now = Instant::now();
+                    state.dt = now.duration_since(state.last_render_time).as_secs_f64();
+                    state.last_render_time = now;
+
                     state.update();
                     match state.render() {
                         Ok(_) => {}
@@ -574,6 +581,15 @@ impl ApplicationHandler for App {
                         //新版wgpu新增的
                         Err(SurfaceError::Other) => {
                             log::warn!("Surface error: other")
+                        }
+                    }
+                    if state.game_config.get_max_fps() != 0 {
+                        let elapsed = state.last_render_time.elapsed();
+                        if elapsed < state.game_config.get_frame_duration() {
+                            state
+                                .game_config
+                                .sleeper
+                                .sleep(state.game_config.get_frame_duration() - elapsed);
                         }
                     }
                     //循环调用从而不断重绘
