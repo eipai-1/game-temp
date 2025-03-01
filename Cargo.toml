@@ -21,6 +21,8 @@ bytemuck = {version = "1.16", features = ["derive"]}
 # ???
 anyhow = "1.0"
 
+spin_sleep = "1.3"
+
 # 数学运算库
 cgmath = "0.18"
 
