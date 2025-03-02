@@ -85,7 +85,7 @@ impl State {
         let realm = realm::Realm::new(&basic_config.device);
 
         //创建摄像机
-        let camera = camera::Camera::new((-1.0, -1.0, -1.0), cgmath::Deg(90.0), cgmath::Deg(45.0));
+        let camera = camera::Camera::new((1.0, 8.0, 1.0), cgmath::Deg(90.0), cgmath::Deg(-45.0));
         let projection = camera::Projection::new(
             basic_config.config.width,
             basic_config.config.height,
@@ -417,7 +417,8 @@ impl State {
         self.camera_uniform
             .update_view_proj(&self.camera, &self.projection);
 
-        self.realm.data.update(&self.camera.position);
+        self.realm
+            .update(&self.camera.position, &self.basic_config.device);
 
         self.basic_config.queue.write_buffer(
             &self.camera_buffer,

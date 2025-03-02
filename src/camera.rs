@@ -110,7 +110,7 @@ impl CameraController {
             is_right_pressed: false,
             is_up_pressed: false,
             is_down_pressed: false,
-            fov_sensitivity: 0.5,
+            fov_sensitivity: 0.003,
             dx: 0.0,
             dy: 0.0,
         }
@@ -174,8 +174,8 @@ impl CameraController {
             WindowEvent::CursorMoved { position, .. } if self.is_fov => {
                 self.dx = (self.center_x as f64 - position.x) as f32;
                 self.dy = (self.center_y as f64 - position.y) as f32;
-                camera.yaw -= Rad(self.dx) * self.fov_sensitivity * dt;
-                camera.pitch += Rad(self.dy) * self.fov_sensitivity * dt;
+                camera.yaw -= Rad(self.dx) * self.fov_sensitivity;
+                camera.pitch += Rad(self.dy) * self.fov_sensitivity;
                 if camera.pitch < -Rad(SAFE_FRAC_PI_2) {
                     camera.pitch = -Rad(SAFE_FRAC_PI_2);
                 } else if camera.pitch > Rad(SAFE_FRAC_PI_2) {
@@ -212,7 +212,7 @@ impl CameraController {
             camera.position.y -= self.speed * dt;
         };
 
-        //update_wf(camera, data);
+        update_wf(camera, data);
     }
 }
 

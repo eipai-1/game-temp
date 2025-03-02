@@ -18,7 +18,7 @@ impl GameConfig {
     pub fn new() -> Self {
         let sleeper = spin_sleep::SpinSleeper::default();
 
-        let max_fps = 0;
+        let max_fps = 20;
         let mut frame_duration = Duration::from_secs_f32(1.0);
         if max_fps != 0 {
             frame_duration = Duration::from_secs_f64(1.0 / max_fps as f64);
