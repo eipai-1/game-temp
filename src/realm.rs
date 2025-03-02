@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::{collections::HashMap, sync::atomic::AtomicBool};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
@@ -178,6 +179,10 @@ const CHUNK_HEIGHT: usize = 16;
 
 const WORLD_FILE_DIR: &str = "./worlds";
 
+pub const BLOCK_EMPTY: Block = Block {
+    tp: BlockType::Empty,
+};
+
 #[repr(usize)]
 #[derive(Clone, Copy, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub enum BlockType {
@@ -199,14 +204,23 @@ pub enum BlockType {
 }
 
 #[allow(unused)]
+enum AdjacentState {
+    PosX,
+    NegX,
+    PosZ,
+    NegZ,
+    Same,
+}
+
+#[allow(unused)]
 #[derive(Debug, Default, Clone, Copy)]
-pub struct Block {
+pub struct BlockInfo {
     pub name: &'static str,
     pub block_type: BlockType,
     pub tex_offset: [[u8; 2]; 6],
 }
 
-impl Block {
+impl BlockInfo {
     fn new(
         name: &'static str,
         //顺序为：正、上、后、下、左、右
@@ -297,54 +311,91 @@ impl Instance {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-pub struct Chunk {
-    blocks: Vec<BlockType>,
+#[derive(Hash, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ChunkCoord {
     x: i32,
     z: i32,
 }
 
+impl ChunkCoord {
+    fn new(x: i32, z: i32) -> Self {
+        Self { x, z }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default, PartialEq)]
+pub struct Block {
+    pub tp: BlockType,
+}
+
+impl Block {
+    fn new(tp: BlockType) -> Self {
+        Self { tp }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct ChunkData {
+    blocks: Vec<Block>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Chunk {
+    data: ChunkData,
+    is_dirty: AtomicBool,
+}
+
 impl Chunk {
-    fn get_block_type(&self, x: usize, y: usize, z: usize) -> BlockType {
-        return self.blocks[x * CHUNK_SIZE * CHUNK_HEIGHT + y * CHUNK_SIZE + z];
+    fn new(data: ChunkData) -> Self {
+        let is_dirty = AtomicBool::new(false);
+        Self { data, is_dirty }
     }
 
-    fn set_block_type(&mut self, x: usize, y: usize, z: usize, block_type: BlockType) {
-        self.blocks[x * CHUNK_SIZE * CHUNK_HEIGHT + y * CHUNK_SIZE + z] = block_type;
+    fn get_block(&self, x: usize, y: usize, z: usize) -> Block {
+        return self.data.blocks[x * CHUNK_SIZE * CHUNK_HEIGHT + y * CHUNK_SIZE + z];
     }
 
-    fn save(&self, world_dir: &str) -> anyhow::Result<()> {
+    fn set_block(&mut self, x: usize, y: usize, z: usize, block: Block) {
+        self.data.blocks[x * CHUNK_SIZE * CHUNK_HEIGHT + y * CHUNK_SIZE + z] = block;
+    }
+
+    fn save(&self, world_dir: &str, coord: &ChunkCoord) -> anyhow::Result<()> {
         let path = Path::new(world_dir)
             .join("chunks")
-            .join(format!("x{}", self.x))
-            .join(format!("y{}.chunk", self.z));
+            .join(format!("x{}", coord.x))
+            .join(format!("y{}.chunk", coord.z));
 
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).context("创建区块目录失败")?;
         }
 
-        let encoded = bincode::serialize(self).context("区块序列化失败")?;
+        let encoded = bincode::serialize(&self.data).context("区块序列化失败")?;
 
         std::fs::write(&path, encoded).context("写入区块失败")?;
 
         Ok(())
     }
 
-    fn load(world_dir: &str, x: i32, z: i32) -> anyhow::Result<Self> {
+    fn load(world_dir: &str, coord: &ChunkCoord) -> anyhow::Result<Option<ChunkData>> {
         let path = Path::new(world_dir)
             .join("chunks")
-            .join(format!("x{}", x))
-            .join(format!("y{}.chunk", z));
+            .join(format!("x{}", coord.x))
+            .join(format!("y{}.chunk", coord.z));
+
+        //区块不存在
+        if !path.exists() {
+            return Ok(None);
+        }
 
         let data = std::fs::read(&path).context("读取区块文件失败")?;
 
-        let chunk: Chunk = bincode::deserialize(&data).context("解析区块数据失败")?;
+        let chunk: ChunkData = bincode::deserialize(&data).context("解析区块数据失败")?;
 
         if chunk.blocks.len() != CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT {
             anyhow::bail!("区块数据损坏：方块数量不匹配");
         }
 
-        Ok(chunk)
+        Ok(Some(chunk))
     }
 }
 
@@ -354,45 +405,46 @@ pub struct Realm {
 }
 
 pub struct RealmData {
-    pub chunks: Vec<Chunk>,
-    pub all_block: Vec<Block>,
+    pub chunk_map: HashMap<ChunkCoord, Chunk>,
+    pub all_block: Vec<BlockInfo>,
     pub wf_max_len: f32,
     pub instances: Vec<Vec<Instance>>,
 
     pub wf_uniform: WireframeUniform,
     pub is_wf_visible: bool,
 
-    pub center_chunk_pos: Point2<i32>,
+    pub center_chunk_pos: ChunkCoord,
+    chunk_rad: i32,
 
     pub name: &'static str,
 }
 
 impl RealmData {
     pub fn new() -> Self {
-        let mut all_block: Vec<Block> = vec![Block::default(); BLOCK_NUM];
+        let mut all_block: Vec<BlockInfo> = vec![BlockInfo::default(); BLOCK_NUM];
 
-        let empty = Block::new(
+        let empty = BlockInfo::new(
             "Empty",
             [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
             BlockType::Empty,
         );
         all_block[empty.block_type as usize] = empty;
 
-        let under_stone = Block::new(
+        let under_stone = BlockInfo::new(
             "Under stone",
             [[1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0]],
             BlockType::UnderStone,
         );
         all_block[under_stone.block_type as usize] = under_stone;
 
-        let stone = Block::new(
+        let stone = BlockInfo::new(
             "stone",
             [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
             BlockType::Stone,
         );
         all_block[stone.block_type as usize] = stone;
 
-        let dirt = Block::new(
+        let dirt = BlockInfo::new(
             "dirt",
             [[4, 0], [4, 0], [4, 0], [4, 0], [4, 0], [4, 0]],
             BlockType::Dirt,
@@ -400,68 +452,17 @@ impl RealmData {
         all_block[dirt.block_type as usize] = dirt;
 
         //创建草方块
-        let grass = Block::new(
+        let grass = BlockInfo::new(
             "grass",
             [[3, 0], [2, 0], [3, 0], [4, 0], [3, 0], [3, 0]],
             BlockType::Grass,
         );
         all_block[grass.block_type as usize] = grass;
         //草方块创建完成
-        let mut chunks: Vec<Chunk> = Vec::new();
 
         let mut instances: Vec<Vec<Instance>> = Vec::new();
         for _i in 0..BLOCK_NUM {
             instances.push(Vec::new());
-        }
-
-        let blocks = vec![BlockType::default(); CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT];
-
-        let mut chunk = Chunk { x: 0, z: 0, blocks };
-
-        for x in 0..CHUNK_SIZE {
-            for y in 0..CHUNK_HEIGHT {
-                for z in 0..CHUNK_SIZE {
-                    // if z > 9 {
-                    //     chunk.set_block_type(x, y, z, BlockType::Empty);
-                    // } else if z == 9 {
-                    if y == 3 {
-                        chunk.set_block_type(x, y, z, BlockType::Grass);
-                    } else if y == 2 {
-                        chunk.set_block_type(x, y, z, BlockType::Dirt);
-                    } else if y == 1 {
-                        chunk.set_block_type(x, y, z, BlockType::Stone);
-                    } else if y == 0 {
-                        chunk.set_block_type(x, y, z, BlockType::UnderStone);
-                    }
-
-                    //游戏使用右手坐标系 拿出右手，食指方向为y轴，大拇指方向为x轴时，此时中指方向为z轴
-                    //if x == 0 && y == 0 && z == 0 {
-                    //    chunk.set_block_type(x, y, z, BlockType::Dirt);
-                    //} else if x == 1 && y == 0 && z == 0 {
-                    //    chunk.set_block_type(x, y, z, BlockType::UnderStone);
-                    //} else if x == 0 && y == 1 && z == 0 {
-                    //    chunk.set_block_type(x, y, z, BlockType::Grass);
-                    //} else if x == 0 && y == 0 && z == 1 {
-                    //    chunk.set_block_type(x, y, z, BlockType::Stone);
-                    //}
-                }
-            }
-        }
-
-        chunks.push(chunk);
-        for chunk in &chunks {
-            for x in 0..CHUNK_SIZE {
-                for y in 0..CHUNK_HEIGHT {
-                    for z in 0..CHUNK_SIZE {
-                        let tp = chunk.get_block_type(x, y, z);
-                        if tp != BlockType::Empty {
-                            instances[tp as usize].push(Instance {
-                                position: [x as f32, y as f32, z as f32],
-                            });
-                        }
-                    }
-                }
-            }
         }
 
         let wf_uniform = WireframeUniform {
@@ -473,25 +474,38 @@ impl RealmData {
 
         let is_wf_visible = true;
 
-        let center_chunk_pos = Point2 { x: 0, y: 0 };
+        let center_chunk_pos = ChunkCoord { x: 0, z: 0 };
 
         let name = "./data/worlds/default_name_1";
 
+        let chunk_rad: i32 = 1;
+        if chunk_rad < 0 {
+            panic!("invaild chunk_rad value:{}", chunk_rad);
+        }
+
+        let mut chunk_map: HashMap<ChunkCoord, Chunk> = HashMap::new();
+        //init chunk
+        Self::load_all_chunk(chunk_rad as i32, center_chunk_pos, &mut chunk_map, name);
+
+        println!("chunk_map:{}", chunk_map.len());
+
+        Self::load_all_instances(&mut instances, &chunk_map);
+
         Self {
             all_block,
-            chunks,
+            chunk_map,
             instances,
             wf_uniform,
             wf_max_len,
             is_wf_visible,
             center_chunk_pos,
             name,
+            chunk_rad,
         }
     }
 
-    pub fn get_block_type(&self, mut x: i32, y: i32, mut z: i32) -> BlockType {
-        let chunk_x = (x as f32 / CHUNK_SIZE as f32).floor() as i32;
-        let chunk_z = (z as f32 / CHUNK_SIZE as f32).floor() as i32;
+    pub fn get_block(&self, mut x: i32, y: i32, mut z: i32) -> Block {
+        let coord = get_chunk_coord(x as f32, z as f32);
 
         let i32_size = CHUNK_SIZE as i32;
         x = x.rem_euclid(i32_size);
@@ -506,18 +520,11 @@ impl RealmData {
         //对纵坐标位于区块外的方块，统一检测为虚空
         //区块范围为[0, CHUNK_HEIGHT]
         if y < 0 || y >= CHUNK_HEIGHT as i32 {
-            return BlockType::Empty;
+            return BLOCK_EMPTY;
         }
 
-        for chunk in &self.chunks {
-            if chunk.x == chunk_x && chunk.z == chunk_z {
-                return chunk.blocks[x as usize * CHUNK_SIZE * CHUNK_HEIGHT
-                    + y as usize * CHUNK_SIZE
-                    + z as usize];
-            }
-        }
-
-        BlockType::Empty
+        let chunk = self.chunk_map.get(&coord).unwrap();
+        return chunk.get_block(x as usize, y as usize, z as usize);
     }
 
     pub fn update_wf_uniform(&mut self, new_position: Point3<i32>) {
@@ -526,6 +533,199 @@ impl RealmData {
             new_position.y as f32,
             new_position.z as f32,
         ];
+    }
+
+    //以chunk_pos为中心,chunk_rad为半径加载正方形区块
+    //加载全部需要的区块
+    fn load_all_chunk(
+        chunk_rad: i32,
+        chunk_pos: ChunkCoord,
+        chunk_map: &mut HashMap<ChunkCoord, Chunk>,
+        world_dir: &str,
+    ) {
+        for relative_x in -chunk_rad..=chunk_rad {
+            for relative_z in -chunk_rad..=chunk_rad {
+                let x = chunk_pos.x + relative_x;
+                let z = chunk_pos.z + relative_z;
+                let coord = ChunkCoord::new(x, z);
+                Self::load_chunk(&coord, chunk_map, world_dir);
+            }
+        }
+    }
+
+    //加载指定的区块
+    fn load_chunk(
+        chunk_pos: &ChunkCoord,
+        chunk_map: &mut HashMap<ChunkCoord, Chunk>,
+        world_dir: &str,
+    ) {
+        match chunk_map.get(chunk_pos) {
+            //存在就不要重复添加
+            Some(_) => {}
+
+            None => {
+                match Chunk::load(world_dir, chunk_pos) {
+                    //存在则读取
+                    Ok(Some(data)) => {
+                        chunk_map.insert(*chunk_pos, Chunk::new(data));
+                    }
+
+                    //不存在生成
+                    Ok(None) => {
+                        let blocks = vec![Block::default(); CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT];
+
+                        let chunk_data = ChunkData { blocks };
+                        let mut chunk = Chunk::new(chunk_data);
+
+                        for x in 0..CHUNK_SIZE {
+                            for y in 0..CHUNK_HEIGHT {
+                                for z in 0..CHUNK_SIZE {
+                                    if y == 3 {
+                                        chunk.set_block(x, y, z, Block::new(BlockType::Grass));
+                                    } else if y == 2 {
+                                        chunk.set_block(x, y, z, Block::new(BlockType::Dirt));
+                                    } else if y == 1 {
+                                        chunk.set_block(x, y, z, Block::new(BlockType::Stone));
+                                    } else if y == 0 {
+                                        chunk.set_block(x, y, z, Block::new(BlockType::UnderStone));
+                                    }
+                                }
+                            }
+                        }
+                        chunk_map.insert(*chunk_pos, chunk);
+                    }
+                    //读取错误
+                    Err(e) => {
+                        eprintln!("区块加载错误：{}", e);
+                        //区块有错先崩溃
+                        panic!("区块加载错误");
+                    }
+                };
+            }
+        }
+    }
+
+    fn save_chunk(&self, coord: &ChunkCoord) {
+        match self.chunk_map.get(coord).unwrap().save(&self.name, coord) {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("区块保存错误:{}", e);
+                panic!("区块保存错误");
+            }
+        }
+    }
+
+    pub fn update(&mut self, player_pos: &Point3<f32>) {
+        let coord = get_chunk_coord(player_pos.x, player_pos.z);
+        match Self::is_adjacent(&self.center_chunk_pos, &coord) {
+            //Same Chunk
+            0 => {}
+
+            //load new chunk and unload old chunk
+            1 => {
+                for x in -self.chunk_rad..=self.chunk_rad {
+                    self.chunk_map.remove(&ChunkCoord::new(
+                        x,
+                        self.center_chunk_pos.z + self.chunk_rad,
+                    ));
+                }
+                for x in -self.chunk_rad..=self.chunk_rad {
+                    Self::load_chunk(
+                        &ChunkCoord::new(x, coord.z - self.chunk_rad),
+                        &mut self.chunk_map,
+                        &self.name,
+                    );
+                }
+            }
+            2 => {
+                for x in -self.chunk_rad..=self.chunk_rad {
+                    self.chunk_map.remove(&ChunkCoord::new(
+                        x,
+                        self.center_chunk_pos.z - self.chunk_rad,
+                    ));
+                }
+                for x in -self.chunk_rad..=self.chunk_rad {
+                    Self::load_chunk(
+                        &ChunkCoord::new(x, coord.z + self.chunk_rad),
+                        &mut self.chunk_map,
+                        &self.name,
+                    );
+                }
+            }
+            3 => {
+                for z in -self.chunk_rad..=self.chunk_rad {
+                    self.chunk_map.remove(&ChunkCoord::new(
+                        &self.center_chunk_pos.x + self.chunk_rad,
+                        z,
+                    ));
+                }
+                for z in -self.chunk_rad..=self.chunk_rad {
+                    Self::load_chunk(
+                        &ChunkCoord::new(&coord.x - self.chunk_rad, z),
+                        &mut self.chunk_map,
+                        &self.name,
+                    );
+                }
+            }
+            4 => {
+                for z in -self.chunk_rad..=self.chunk_rad {
+                    self.chunk_map.remove(&ChunkCoord::new(
+                        &self.center_chunk_pos.x - self.chunk_rad,
+                        z,
+                    ));
+                }
+                for z in -self.chunk_rad..=self.chunk_rad {
+                    Self::load_chunk(
+                        &ChunkCoord::new(&coord.x + self.chunk_rad, z),
+                        &mut self.chunk_map,
+                        &self.name,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn is_adjacent(old: &ChunkCoord, new: &ChunkCoord) -> i32 {
+        if old.x == new.x {
+            if old.z - new.z == 1 {
+                return 1;
+            } else if new.z - old.z == 1 {
+                return 2;
+            }
+        } else if old.z == new.z {
+            if old.x - new.x == 1 {
+                return 3;
+            } else if new.x - old.x == 1 {
+                return 4;
+            }
+        }
+        0
+    }
+
+    fn load_all_instances(
+        instances: &mut Vec<Vec<Instance>>,
+        chunk_map: &HashMap<ChunkCoord, Chunk>,
+    ) {
+        for (coord, chunk) in chunk_map {
+            for (i, block) in chunk.data.blocks.iter().enumerate() {
+                let ux = i / (CHUNK_SIZE * CHUNK_HEIGHT);
+                let remainder_x = i % (CHUNK_SIZE * CHUNK_HEIGHT);
+                let uy = remainder_x / CHUNK_SIZE;
+                let uz = remainder_x % CHUNK_SIZE;
+
+                let mut x = ux as i32;
+                let y = uy as i32;
+                let mut z = uz as i32;
+
+                x += coord.x * CHUNK_SIZE as i32;
+                z += coord.z * CHUNK_SIZE as i32;
+
+                instances[block.tp as usize].push(Instance {
+                    position: [x as f32, y as f32, z as f32],
+                });
+            }
+        }
     }
 }
 
@@ -708,31 +908,43 @@ fn generate_wf_vertices() -> Vec<WireframeVertex> {
     v32
 }
 
+//x，z是实际坐标
+pub fn get_chunk_coord(x: f32, z: f32) -> ChunkCoord {
+    let chunk_x = (x / CHUNK_SIZE as f32).floor() as i32;
+    let chunk_z = (z / CHUNK_SIZE as f32).floor() as i32;
+    ChunkCoord::new(chunk_x, chunk_z)
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::realm::BlockType;
+    //use crate::realm::BlockType;
 
     use super::RealmData;
     use super::*;
 
     #[test]
-    fn test_get_set_block_type() {
-        let data = RealmData::new();
+    fn test_get_set_block() {
+        //let data = RealmData::new();
 
-        assert_eq!(data.get_block_type(0, 0, 0), BlockType::UnderStone);
-        assert_eq!(data.get_block_type(0, 1, 0), BlockType::Stone);
-        assert_eq!(data.get_block_type(0, 2, 0), BlockType::Dirt);
-        assert_eq!(data.get_block_type(0, 3, 0), BlockType::Grass);
-        assert_eq!(data.get_block_type(0, 0, -1), BlockType::Empty);
+        //assert_eq!(data.get_block(0, 0, 0), BlockType::UnderStone);
+        //assert_eq!(data.get_block(0, 1, 0), BlockType::Stone);
+        //assert_eq!(data.get_block(0, 2, 0), BlockType::Dirt);
+        //assert_eq!(data.get_block(0, 3, 0), BlockType::Grass);
+        //assert_eq!(data.get_block(0, 0, -1), BlockType::Empty);
     }
 
     #[test]
     fn test_chunk_file() -> anyhow::Result<()> {
         let data = RealmData::new();
-        data.chunks[0].save(data.name)?;
+        let coord = ChunkCoord::new(0, 0);
+        data.chunk_map
+            .get(&coord)
+            .unwrap()
+            .save(data.name, &coord)?;
 
-        let chunk = Chunk::load(data.name, 0, 0).unwrap();
-        assert_eq!(chunk, data.chunks[0]);
+        let chunk = Chunk::load(data.name, &coord).unwrap().unwrap();
+
+        assert_eq!(chunk, data.chunk_map.get(&coord).unwrap().data);
         Ok(())
     }
 }

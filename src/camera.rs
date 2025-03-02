@@ -212,7 +212,7 @@ impl CameraController {
             camera.position.y -= self.speed * dt;
         };
 
-        update_wf(camera, data);
+        //update_wf(camera, data);
     }
 }
 
@@ -233,8 +233,6 @@ fn dda(
     origin: Point3<f32>,
     data: &realm::RealmData,
 ) -> Option<Point3<i32>> {
-    const EPSILON: f32 = 1e-6;
-
     // 1. 初始化当前体素坐标（向下取整）
     let mut current_voxel = origin.map(|x| x.floor() as i32);
 
@@ -252,7 +250,7 @@ fn dda(
             let origin_component = origin[i];
             let cv_component = current_voxel[i] as f32;
 
-            if dir_component.abs() < EPSILON {
+            if dir_component.abs() < ZERO {
                 t_max[i] = f32::INFINITY;
                 t_delta[i] = f32::INFINITY;
             } else {
@@ -271,8 +269,8 @@ fn dda(
     // 4. 主循环步进检测
     for _ in 0..data.wf_max_len as u32 {
         // 检测当前体素是否被占据
-        let tp = data.get_block_type(current_voxel.x, current_voxel.y, current_voxel.z);
-        if tp != realm::BlockType::Empty {
+        let block = data.get_block(current_voxel.x, current_voxel.y, current_voxel.z);
+        if block.tp != realm::BlockType::Empty {
             return Some(current_voxel);
         }
 
@@ -310,11 +308,6 @@ mod tests {
     #[test]
     fn test_dda1() {
         let mut data = realm::RealmData::new();
-        let dir: Vector3<f32> = Vector3 {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        };
         let mut position = Point3 {
             x: 0.5,
             y: 0.5,

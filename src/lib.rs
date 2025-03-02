@@ -417,6 +417,8 @@ impl State {
         self.camera_uniform
             .update_view_proj(&self.camera, &self.projection);
 
+        self.realm.data.update(&self.camera.position);
+
         self.basic_config.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -471,6 +473,9 @@ impl State {
             render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
 
             for block in self.realm.data.all_block.iter().skip(1) {
+                if self.realm.data.instances[block.block_type as usize].len() == 0 {
+                    continue;
+                }
                 render_pass.set_vertex_buffer(
                     0,
                     self.realm.render_res.block_vertex_buffers[block.block_type as usize].slice(..),
