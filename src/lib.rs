@@ -13,6 +13,7 @@ use winit::{
 };
 
 mod basic_config;
+mod benchmark;
 pub mod camera;
 mod game_config;
 pub mod realm;
@@ -67,6 +68,7 @@ struct State {
     wf_render_pipeline: RenderPipeline,
 
     game_config: game_config::GameConfig,
+    benchmark: benchmark::Benchmark,
 }
 
 impl State {
@@ -348,6 +350,8 @@ impl State {
         let dt: f64 = 0.001;
         let last_render_time = instant::Instant::now();
 
+        let benchmark = benchmark::Benchmark::new(true);
+
         Self {
             basic_config,
             window,
@@ -372,6 +376,8 @@ impl State {
             wf_render_pipeline,
 
             game_config,
+
+            benchmark,
         }
     }
 
@@ -430,6 +436,8 @@ impl State {
             0,
             bytemuck::bytes_of(&self.realm.data.wf_uniform),
         );
+
+        self.benchmark.update(self.dt);
     }
 
     fn render(&mut self) -> Result<(), SurfaceError> {
@@ -530,7 +538,7 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = WindowAttributes::default()
             .with_title("game-temp")
-            .with_inner_size(PhysicalSize::new(800, 600));
+            .with_inner_size(PhysicalSize::new(1920, 1080));
         let window = event_loop.create_window(window_attributes).unwrap();
 
         //异步函数这里不是很懂

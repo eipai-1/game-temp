@@ -10,7 +10,7 @@ use crate::realm;
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.0001;
 
-const ZERO: f32 = 1e-6;
+pub const ZERO: f32 = 1e-6;
 
 #[derive(Debug)]
 pub struct Camera {
