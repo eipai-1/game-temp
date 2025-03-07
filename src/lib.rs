@@ -1,3 +1,5 @@
+use crate::egui_tools::EguiRenderer;
+use egui_wgpu::ScreenDescriptor;
 use instant::Instant;
 use pollster::FutureExt;
 use std::{iter, sync::Arc};
@@ -15,6 +17,7 @@ use winit::{
 mod basic_config;
 mod benchmark;
 pub mod camera;
+mod egui_tools;
 mod game_config;
 pub mod realm;
 mod texture;
@@ -69,6 +72,9 @@ struct State {
 
     game_config: game_config::GameConfig,
     benchmark: benchmark::Benchmark,
+
+    egui_renderer: EguiRenderer,
+    scale_factor: f32,
 }
 
 impl State {
@@ -249,7 +255,7 @@ impl State {
                     layout: Some(&render_pipeline_layout),
                     vertex: VertexState {
                         module: &shader,
-                        entry_point: Some("vs_main"),
+                        entry_point: "vs_main",
                         buffers: &[realm::Vertex::desc(), realm::Instance::desc()],
                         compilation_options: PipelineCompilationOptions::default(),
                     },
@@ -276,7 +282,7 @@ impl State {
                     },
                     fragment: Some(FragmentState {
                         module: &shader,
-                        entry_point: Some("fs_main"),
+                        entry_point: "fs_main",
                         targets: &[Some(ColorTargetState {
                             format: basic_config.config.format,
                             blend: Some(BlendState::REPLACE),
@@ -305,7 +311,7 @@ impl State {
                     layout: Some(&render_pipeline_layout),
                     vertex: VertexState {
                         module: &wf_shader,
-                        entry_point: Some("vs_main"),
+                        entry_point: "vs_main",
                         buffers: &[realm::WireframeVertex::desc()],
                         compilation_options: PipelineCompilationOptions::default(),
                     },
@@ -332,7 +338,7 @@ impl State {
                     },
                     fragment: Some(FragmentState {
                         module: &wf_shader,
-                        entry_point: Some("fs_main"),
+                        entry_point: "fs_main",
                         targets: &[Some(ColorTargetState {
                             format: basic_config.config.format,
                             blend: Some(BlendState::REPLACE),
@@ -352,6 +358,15 @@ impl State {
 
         let benchmark = benchmark::Benchmark::new(true);
 
+        let egui_renderer = EguiRenderer::new(
+            &basic_config.device,
+            basic_config.config.format,
+            None,
+            1,
+            &*window,
+        );
+
+        let scale_factor: f32 = 1.0;
         Self {
             basic_config,
             window,
@@ -378,6 +393,8 @@ impl State {
             game_config,
 
             benchmark,
+            egui_renderer,
+            scale_factor,
         }
     }
 
@@ -590,13 +607,66 @@ impl ApplicationHandler for App {
                         Err(SurfaceError::Timeout) => {
                             log::warn!("Surface timeout")
                         }
-
-                        //wgpu-new
-                        //新版wgpu新增的
-                        Err(SurfaceError::Other) => {
-                            log::warn!("Surface error: other")
-                        }
                     }
+                    let screen_descriptor = ScreenDescriptor {
+                        size_in_pixels: [
+                            state.basic_config.config.width,
+                            state.basic_config.config.height,
+                        ],
+                        pixels_per_point: state.window.as_ref().scale_factor() as f32
+                            * state.scale_factor,
+                    };
+                    let surface_texture = state.basic_config.surface.get_current_texture();
+                    let surface_texture = surface_texture.unwrap();
+
+                    let surface_view = surface_texture
+                        .texture
+                        .create_view(&wgpu::TextureViewDescriptor::default());
+                    let mut encoder = state.basic_config.device.create_command_encoder(
+                        &CommandEncoderDescriptor {
+                            label: Some("temp encoder"),
+                        },
+                    );
+                    let window = state.window.as_ref();
+                    {
+                        state.egui_renderer.begin_frame(window);
+
+                        egui::Window::new("winit + egui + wgpu says hello!")
+                            .resizable(true)
+                            .vscroll(true)
+                            .default_open(false)
+                            .show(state.egui_renderer.context(), |ui| {
+                                ui.label("Label!");
+
+                                if ui.button("Button!").clicked() {
+                                    println!("boom!")
+                                }
+
+                                ui.separator();
+                                ui.horizontal(|ui| {
+                                    ui.label(format!(
+                                        "Pixels per point: {}",
+                                        state.egui_renderer.context().pixels_per_point()
+                                    ));
+                                    if ui.button("-").clicked() {
+                                        state.scale_factor = (state.scale_factor - 0.1).max(0.3);
+                                    }
+                                    if ui.button("+").clicked() {
+                                        state.scale_factor = (state.scale_factor + 0.1).min(3.0);
+                                    }
+                                });
+                            });
+
+                        state.egui_renderer.end_frame_and_draw(
+                            &state.basic_config.device,
+                            &state.basic_config.queue,
+                            &mut encoder,
+                            window,
+                            &surface_view,
+                            screen_descriptor,
+                        );
+                    }
+
                     if state.game_config.get_max_fps() != 0 {
                         let elapsed = state.last_render_time.elapsed();
                         if elapsed < state.game_config.get_frame_duration() {
