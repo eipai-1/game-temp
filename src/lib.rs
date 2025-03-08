@@ -356,7 +356,7 @@ impl State {
         let dt: f64 = 0.001;
         let last_render_time = instant::Instant::now();
 
-        let benchmark = benchmark::Benchmark::new(true);
+        let benchmark = benchmark::Benchmark::new(false);
 
         let egui_renderer = EguiRenderer::new(
             &basic_config.device,
@@ -532,6 +532,65 @@ impl State {
             }
         }
 
+        let screen_descriptor = ScreenDescriptor {
+            size_in_pixels: [
+                self.basic_config.config.width,
+                self.basic_config.config.height,
+            ],
+            pixels_per_point: self.window.as_ref().scale_factor() as f32 * self.scale_factor,
+        };
+
+        let surface_view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        //let mut encoder =
+        //    self.basic_config
+        //        .device
+        //        .create_command_encoder(&CommandEncoderDescriptor {
+        //            label: Some("temp encoder"),
+        //        });
+
+        let window = self.window.as_ref();
+        {
+            self.egui_renderer.begin_frame(window);
+
+            egui::Window::new("winit + egui + wgpu says hello!")
+                .resizable(true)
+                .vscroll(true)
+                .default_open(false)
+                .show(self.egui_renderer.context(), |ui| {
+                    ui.label("Label!");
+
+                    if ui.button("Button!").clicked() {
+                        println!("boom!")
+                    }
+
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.label(format!(
+                            "Pixels per point: {}",
+                            self.egui_renderer.context().pixels_per_point()
+                        ));
+                        if ui.button("-").clicked() {
+                            self.scale_factor = (self.scale_factor - 0.1).max(0.3);
+                        }
+                        if ui.button("+").clicked() {
+                            self.scale_factor = (self.scale_factor + 0.1).min(3.0);
+                        }
+                    });
+                });
+
+            self.egui_renderer.end_frame_and_draw(
+                &self.basic_config.device,
+                &self.basic_config.queue,
+                &mut encoder,
+                window,
+                &surface_view,
+                screen_descriptor,
+            );
+        }
+
         self.basic_config.queue.submit(iter::once(encoder.finish()));
         output.present();
 
@@ -572,7 +631,11 @@ impl ApplicationHandler for App {
             //如果为真则代表为输入事件，且此方法会处理输入事件。此时则完成处理，不需要在继续处理
             //否则继续处理
             state.input(&event);
+            state
+                .egui_renderer
+                .handle_input(state.window.as_ref(), &event);
         }
+
         match event {
             WindowEvent::CloseRequested
             | WindowEvent::KeyboardInput {
@@ -607,64 +670,6 @@ impl ApplicationHandler for App {
                         Err(SurfaceError::Timeout) => {
                             log::warn!("Surface timeout")
                         }
-                    }
-                    let screen_descriptor = ScreenDescriptor {
-                        size_in_pixels: [
-                            state.basic_config.config.width,
-                            state.basic_config.config.height,
-                        ],
-                        pixels_per_point: state.window.as_ref().scale_factor() as f32
-                            * state.scale_factor,
-                    };
-                    let surface_texture = state.basic_config.surface.get_current_texture();
-                    let surface_texture = surface_texture.unwrap();
-
-                    let surface_view = surface_texture
-                        .texture
-                        .create_view(&wgpu::TextureViewDescriptor::default());
-                    let mut encoder = state.basic_config.device.create_command_encoder(
-                        &CommandEncoderDescriptor {
-                            label: Some("temp encoder"),
-                        },
-                    );
-                    let window = state.window.as_ref();
-                    {
-                        state.egui_renderer.begin_frame(window);
-
-                        egui::Window::new("winit + egui + wgpu says hello!")
-                            .resizable(true)
-                            .vscroll(true)
-                            .default_open(false)
-                            .show(state.egui_renderer.context(), |ui| {
-                                ui.label("Label!");
-
-                                if ui.button("Button!").clicked() {
-                                    println!("boom!")
-                                }
-
-                                ui.separator();
-                                ui.horizontal(|ui| {
-                                    ui.label(format!(
-                                        "Pixels per point: {}",
-                                        state.egui_renderer.context().pixels_per_point()
-                                    ));
-                                    if ui.button("-").clicked() {
-                                        state.scale_factor = (state.scale_factor - 0.1).max(0.3);
-                                    }
-                                    if ui.button("+").clicked() {
-                                        state.scale_factor = (state.scale_factor + 0.1).min(3.0);
-                                    }
-                                });
-                            });
-
-                        state.egui_renderer.end_frame_and_draw(
-                            &state.basic_config.device,
-                            &state.basic_config.queue,
-                            &mut encoder,
-                            window,
-                            &surface_view,
-                            screen_descriptor,
-                        );
                     }
 
                     if state.game_config.get_max_fps() != 0 {
