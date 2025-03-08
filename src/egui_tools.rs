@@ -1,3 +1,5 @@
+use core::f64;
+
 use egui::Context;
 use egui_wgpu::wgpu::{CommandEncoder, Device, Queue, StoreOp, TextureFormat, TextureView};
 use egui_wgpu::{wgpu, Renderer, ScreenDescriptor};
@@ -9,6 +11,9 @@ pub struct EguiRenderer {
     state: State,
     renderer: Renderer,
     frame_started: bool,
+    update_period: f64,
+    update_dt: f64,
+    pub fps: f64,
 }
 
 impl EguiRenderer {
@@ -41,10 +46,25 @@ impl EguiRenderer {
             true,
         );
 
+        let update_period = 1.0;
+        let update_dt = 0.0;
+        let fps = 0.0;
+
         EguiRenderer {
             state: egui_state,
             renderer: egui_renderer,
             frame_started: false,
+            update_period,
+            update_dt,
+            fps,
+        }
+    }
+
+    pub fn update(&mut self, dt: f64) {
+        self.update_dt += dt;
+        if self.update_dt >= self.update_period {
+            self.fps = 1.0 / dt;
+            self.update_dt = 0.0;
         }
     }
 

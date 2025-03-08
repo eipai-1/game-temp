@@ -45,6 +45,12 @@ impl Camera {
     pub fn calc_matrix(&self) -> Matrix4<f32> {
         Matrix4::look_to_rh(self.position, self.direction(), Vector3::unit_y())
     }
+
+    pub fn reset(&mut self) {
+        self.position = Point3::new(0.0, 7.0, 0.0);
+        self.yaw = Rad(0.0);
+        self.pitch = Rad(-45.0);
+    }
 }
 
 pub struct Projection {

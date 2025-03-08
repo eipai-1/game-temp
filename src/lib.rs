@@ -356,7 +356,7 @@ impl State {
         let dt: f64 = 0.001;
         let last_render_time = instant::Instant::now();
 
-        let benchmark = benchmark::Benchmark::new(false);
+        let benchmark = benchmark::Benchmark::new();
 
         let egui_renderer = EguiRenderer::new(
             &basic_config.device,
@@ -455,6 +455,7 @@ impl State {
         );
 
         self.benchmark.update(self.dt);
+        self.egui_renderer.update(self.dt);
     }
 
     fn render(&mut self) -> Result<(), SurfaceError> {
@@ -555,30 +556,28 @@ impl State {
         {
             self.egui_renderer.begin_frame(window);
 
-            egui::Window::new("winit + egui + wgpu says hello!")
+            egui::Window::new("Hello world")
                 .resizable(true)
                 .vscroll(true)
-                .default_open(false)
+                .default_open(true)
                 .show(self.egui_renderer.context(), |ui| {
-                    ui.label("Label!");
+                    ui.label(format!("FPS:{}", self.egui_renderer.fps as u32));
 
-                    if ui.button("Button!").clicked() {
-                        println!("boom!")
+                    if ui.button("start benchmark").clicked() {
+                        self.benchmark.start(&mut self.camera);
+                    }
+                    ui.separator();
+
+                    if self.benchmark.is_active {
+                        ui.label("Running benchmark");
                     }
 
-                    ui.separator();
-                    ui.horizontal(|ui| {
+                    if self.benchmark.has_output {
                         ui.label(format!(
-                            "Pixels per point: {}",
-                            self.egui_renderer.context().pixels_per_point()
+                            "Benchmark Result: Avg FPS:{:.2}, sample_count:{} ",
+                            self.benchmark.avg_fps, self.benchmark.sample_count
                         ));
-                        if ui.button("-").clicked() {
-                            self.scale_factor = (self.scale_factor - 0.1).max(0.3);
-                        }
-                        if ui.button("+").clicked() {
-                            self.scale_factor = (self.scale_factor + 0.1).min(3.0);
-                        }
-                    });
+                    }
                 });
 
             self.egui_renderer.end_frame_and_draw(

@@ -2,23 +2,25 @@ use crate::camera;
 
 #[derive(Debug)]
 pub struct Benchmark {
-    is_active: bool,
-    sample_count: u32,
+    pub is_active: bool,
+    first_active_flag: bool,
+    pub sample_count: u32,
     total_sample_count: u32,
-    has_output: bool,
+    pub has_output: bool,
 
     //secs as f64
     period: f64,
     period_dt: f64,
 
     total_fps: f64,
-    avg_fps: f64,
-    max_fps: f64,
-    min_fps: f64,
+    pub avg_fps: f64,
+    pub max_fps: f64,
+    pub min_fps: f64,
 }
 
 impl Benchmark {
-    pub fn new(is_active: bool) -> Self {
+    pub fn new() -> Self {
+        let is_active = false;
         let sample_count = 0;
         let total_sample_count = 10;
         let avg_fps = 0.0;
@@ -28,6 +30,7 @@ impl Benchmark {
         let period = 1.0;
         let period_dt = 0.0;
         let has_output = false;
+        let first_active_flag = true;
         Self {
             sample_count,
             avg_fps,
@@ -39,7 +42,25 @@ impl Benchmark {
             total_sample_count,
             total_fps,
             has_output,
+            first_active_flag,
         }
+    }
+
+    pub fn start(&mut self, camera: &mut camera::Camera) {
+        if self.is_active == false {
+            self.reset();
+            self.is_active = true;
+            camera.reset();
+        }
+    }
+
+    fn reset(&mut self) {
+        self.is_active = false;
+        self.has_output = false;
+        self.sample_count = 0;
+        self.total_fps = 0.0;
+        self.max_fps = f64::INFINITY;
+        self.min_fps = 0.0;
     }
 
     pub fn update(&mut self, dt: f64) {
@@ -47,7 +68,7 @@ impl Benchmark {
             //println!("start benchmarking");
             if self.sample_count < self.total_sample_count {
                 //周期采样
-                if self.period_dt < self.period {
+                if self.period_dt >= self.period {
                     let fps = 1.0 / dt;
 
                     if fps < self.max_fps {
@@ -66,7 +87,8 @@ impl Benchmark {
             } else if !self.has_output {
                 self.avg_fps = self.total_fps / self.total_sample_count as f64;
                 self.has_output = true;
-                println!("{:#?}", self);
+                self.is_active = false;
+                //println!("{:#?}", self);
             }
         }
     }
