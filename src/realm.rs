@@ -6,7 +6,7 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use wgpu::{util::DeviceExt, *};
 
-const BLOCK_NUM: usize = 5;
+pub const BLOCK_NUM: usize = 5;
 
 use cgmath::*;
 
@@ -295,6 +295,7 @@ impl WireframeVertex {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Instance {
     pub position: [f32; 3],
+    pub material_layer: u32,
 }
 
 impl Instance {
@@ -432,7 +433,7 @@ impl RealmData {
         all_block[empty.block_type as usize] = empty;
 
         let under_stone = BlockInfo::new(
-            "Under stone",
+            "bedrock",
             [[1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0]],
             BlockType::UnderStone,
         );
@@ -454,7 +455,7 @@ impl RealmData {
 
         //创建草方块
         let grass = BlockInfo::new(
-            "grass",
+            "grass_block_side",
             [[3, 0], [2, 0], [3, 0], [4, 0], [3, 0], [3, 0]],
             BlockType::Grass,
         );
@@ -586,6 +587,7 @@ impl RealmData {
 
                 instances[block.tp as usize].push(Instance {
                     position: [x as f32, y as f32, z as f32],
+                    material_layer: block.tp as u32,
                 });
             }
         }
@@ -895,6 +897,7 @@ impl Realm {
 
                 self.data.instances[block.tp as usize].push(Instance {
                     position: [x as f32, y as f32, z as f32],
+                    material_layer: block.tp as u32,
                 });
             }
         }

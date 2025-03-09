@@ -31,6 +31,7 @@ impl GameConfig {
         }
     }
 
+    #[allow(unused)]
     pub fn set_max_fps(&mut self, new_max_fps: u32) {
         self.max_fps = new_max_fps;
         if self.max_fps != 0 {
