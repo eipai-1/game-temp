@@ -3,6 +3,7 @@ use std::path::Path;
 use std::{collections::HashMap, sync::atomic::AtomicBool};
 
 use anyhow::Context;
+use num_derive::FromPrimitive;
 use serde::{Deserialize, Serialize};
 use wgpu::{util::DeviceExt, *};
 
@@ -11,121 +12,120 @@ pub const BLOCK_NUM: usize = 5;
 use cgmath::*;
 
 pub const TEXT_FRAC: f32 = 16.0 / 512.0;
+const WF_SIZE: f32 = 0.01;
+const WF_WIDTH: f32 = 0.1;
 pub const VERTICES: &[Vertex] = &[
     //方块坐标：其中每条边都从原点向每个轴的正方向延伸一格
+    //按照正-上-后-下-左-右的顺序
 
     //正面---正常从正面看
     //后面统一按以下顺序
     //正面左上角
     Vertex {
         position: [0.0, 1.0, 1.0],
-        tex_coords: [0.0, 0.0],
+        tex_coord: [0.0, 0.0],
     },
     //正面右上角
     Vertex {
         position: [1.0, 1.0, 1.0],
-        tex_coords: [TEXT_FRAC, 0.0],
+        tex_coord: [1.0, 0.0],
     },
     //正面右下角
     Vertex {
         position: [1.0, 0.0, 1.0],
-        tex_coords: [TEXT_FRAC, TEXT_FRAC],
+        tex_coord: [1.0, 1.0],
     },
     //正面左下角
     Vertex {
         position: [0.0, 0.0, 1.0],
-        tex_coords: [0.0, TEXT_FRAC],
+        tex_coord: [0.0, 1.0],
     },
     //上面---从上面看---摄像机上方向为z轴负方向
     Vertex {
         position: [0.0, 1.0, 0.0],
-        tex_coords: [0.0, 0.0],
+        tex_coord: [0.0, 0.0],
     },
     Vertex {
         position: [1.0, 1.0, 0.0],
-        tex_coords: [TEXT_FRAC, 0.0],
+        tex_coord: [1.0, 0.0],
     },
     Vertex {
         position: [1.0, 1.0, 1.0],
-        tex_coords: [TEXT_FRAC, TEXT_FRAC],
+        tex_coord: [1.0, 1.0],
     },
     Vertex {
         position: [0.0, 1.0, 1.0],
-        tex_coords: [0.0, TEXT_FRAC],
+        tex_coord: [0.0, 1.0],
     },
     //后面---摄像机上方向为y轴正方向
     Vertex {
         position: [1.0, 1.0, 0.0],
-        tex_coords: [0.0, 0.0],
+        tex_coord: [0.0, 0.0],
     },
     Vertex {
         position: [0.0, 1.0, 0.0],
-        tex_coords: [TEXT_FRAC, 0.0],
+        tex_coord: [1.0, 0.0],
     },
     Vertex {
         position: [0.0, 0.0, 0.0],
-        tex_coords: [TEXT_FRAC, TEXT_FRAC],
+        tex_coord: [1.0, 1.0],
     },
     Vertex {
         position: [1.0, 0.0, 0.0],
-        tex_coords: [0.0, TEXT_FRAC],
+        tex_coord: [0.0, 1.0],
     },
     //下面--摄像机正方向为y轴正方向
     Vertex {
         position: [0.0, 0.0, 1.0],
-        tex_coords: [0.0, 0.0],
+        tex_coord: [0.0, 0.0],
     },
     Vertex {
         position: [1.0, 0.0, 1.0],
-        tex_coords: [TEXT_FRAC, 0.0],
+        tex_coord: [1.0, 0.0],
     },
     Vertex {
         position: [1.0, 0.0, 0.0],
-        tex_coords: [TEXT_FRAC, TEXT_FRAC],
+        tex_coord: [1.0, 1.0],
     },
     Vertex {
         position: [0.0, 0.0, 0.0],
-        tex_coords: [0.0, TEXT_FRAC],
+        tex_coord: [0.0, 1.0],
     },
     //左面--摄像机上方向y轴正向
     Vertex {
         position: [0.0, 1.0, 0.0],
-        tex_coords: [0.0, 0.0],
+        tex_coord: [0.0, 0.0],
     },
     Vertex {
         position: [0.0, 1.0, 1.0],
-        tex_coords: [TEXT_FRAC, 0.0],
+        tex_coord: [1.0, 0.0],
     },
     Vertex {
         position: [0.0, 0.0, 1.0],
-        tex_coords: [TEXT_FRAC, TEXT_FRAC],
+        tex_coord: [1.0, 1.0],
     },
     Vertex {
         position: [0.0, 0.0, 0.0],
-        tex_coords: [0.0, TEXT_FRAC],
+        tex_coord: [0.0, 1.0],
     },
     //右面--摄像机上方向y轴正向
     Vertex {
         position: [1.0, 1.0, 1.0],
-        tex_coords: [0.0, 0.0],
+        tex_coord: [0.0, 0.0],
     },
     Vertex {
         position: [1.0, 1.0, 0.0],
-        tex_coords: [TEXT_FRAC, 0.0],
+        tex_coord: [1.0, 0.0],
     },
     Vertex {
         position: [1.0, 0.0, 0.0],
-        tex_coords: [TEXT_FRAC, TEXT_FRAC],
+        tex_coord: [1.0, 1.0],
     },
     Vertex {
         position: [1.0, 0.0, 1.0],
-        tex_coords: [0.0, TEXT_FRAC],
+        tex_coord: [0.0, 1.0],
     },
 ];
-
-const WF_SIZE: f32 = 0.01;
-const WF_WIDTH: f32 = 0.1;
-
 #[rustfmt::skip]
 pub const INDICES: &[u16] = &[
     0,  1,  2,  0,  2,  3, /* 之后每个加4就行 */ 
@@ -184,6 +184,8 @@ pub const BLOCK_EMPTY: Block = Block {
     tp: BlockType::Empty,
 };
 
+//同时作为usize和u32
+//注意范围
 #[repr(usize)]
 #[derive(Clone, Copy, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub enum BlockType {
@@ -204,6 +206,19 @@ pub enum BlockType {
     Dirt = 4,
 }
 
+pub const BLOCK_MATERIALS_NUM: u32 = 5;
+
+#[repr(u32)]
+#[derive(FromPrimitive)]
+pub enum BlockMaterials {
+    Empty = 999,
+    UnderStone = 0,
+    Stone = 1,
+    GrassBlockSide = 2,
+    GrassBlockTop = 3,
+    Dirt = 4,
+}
+
 #[allow(unused)]
 enum AdjacentState {
     PosX,
@@ -218,14 +233,14 @@ enum AdjacentState {
 pub struct BlockInfo {
     pub name: &'static str,
     pub block_type: BlockType,
-    pub tex_offset: [[u8; 2]; 6],
+    pub tex_offset: [u32; 6],
 }
 
 impl BlockInfo {
     fn new(
         name: &'static str,
         //顺序为：正、上、后、下、左、右
-        tex_offset: [[u8; 2]; 6],
+        tex_offset: [u32; 6],
         block_type: BlockType,
     ) -> Self {
         Self {
@@ -240,7 +255,7 @@ impl BlockInfo {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
     pub position: [f32; 3],
-    pub tex_coords: [f32; 2],
+    pub tex_coord: [f32; 2],
 }
 
 impl Vertex {
@@ -282,11 +297,18 @@ impl WireframeVertex {
         VertexBufferLayout {
             array_stride: std::mem::size_of::<WireframeVertex>() as BufferAddress,
             step_mode: VertexStepMode::Vertex,
-            attributes: &[VertexAttribute {
-                offset: 0,
-                shader_location: 0,
-                format: VertexFormat::Float32x3,
-            }],
+            attributes: &[
+                VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: VertexFormat::Float32x3,
+                },
+                VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 3]>() as BufferAddress,
+                    shader_location: 1,
+                    format: VertexFormat::Float32x2,
+                },
+            ],
         }
     }
 }
@@ -295,7 +317,7 @@ impl WireframeVertex {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Instance {
     pub position: [f32; 3],
-    pub material_layer: u32,
+    pub block_type: u32,
 }
 
 impl Instance {
@@ -304,11 +326,18 @@ impl Instance {
         VertexBufferLayout {
             array_stride: mem::size_of::<Instance>() as BufferAddress,
             step_mode: VertexStepMode::Instance,
-            attributes: &[VertexAttribute {
-                offset: 0,
-                shader_location: 5,
-                format: VertexFormat::Float32x3,
-            }],
+            attributes: &[
+                VertexAttribute {
+                    offset: 0,
+                    shader_location: 5,
+                    format: VertexFormat::Float32x3,
+                },
+                VertexAttribute {
+                    offset: mem::size_of::<[f32; 3]>() as BufferAddress,
+                    shader_location: 6,
+                    format: VertexFormat::Uint32,
+                },
+            ],
         }
     }
 }
@@ -336,12 +365,34 @@ impl Block {
     }
 }
 
+/*
+ * 这是存储到文件中的数据
+ */
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct ChunkData {
     blocks: Vec<Block>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Material {
+    index: u32,
+    _padding: [u32; 3],
+}
+
+impl Material {
+    fn new(index: u32) -> Self {
+        Self {
+            index,
+            _padding: [0, 0, 0],
+        }
+    }
+}
+
+/*
+ * 这是游戏运行时需要的数据
+ */
+#[derive(Debug)]
 pub struct Chunk {
     data: ChunkData,
     is_dirty: AtomicBool,
@@ -399,6 +450,7 @@ impl Chunk {
 
         Ok(Some(chunk))
     }
+    //i为blocks的索引
 }
 
 pub struct Realm {
@@ -410,7 +462,7 @@ pub struct RealmData {
     pub chunk_map: HashMap<ChunkCoord, Chunk>,
     pub all_block: Vec<BlockInfo>,
     pub wf_max_len: f32,
-    pub instances: Vec<Vec<Instance>>,
+    pub instance: Vec<Instance>,
 
     pub wf_uniform: WireframeUniform,
     pub is_wf_visible: bool,
@@ -423,32 +475,61 @@ pub struct RealmData {
 
 impl RealmData {
     pub fn new() -> Self {
+        use BlockMaterials::*;
         let mut all_block: Vec<BlockInfo> = vec![BlockInfo::default(); BLOCK_NUM];
 
         let empty = BlockInfo::new(
             "Empty",
-            [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+            [
+                Empty as u32,
+                Empty as u32,
+                Empty as u32,
+                Empty as u32,
+                Empty as u32,
+                Empty as u32,
+            ],
             BlockType::Empty,
         );
         all_block[empty.block_type as usize] = empty;
 
         let under_stone = BlockInfo::new(
             "bedrock",
-            [[1, 0], [1, 0], [1, 0], [1, 0], [1, 0], [1, 0]],
+            [
+                UnderStone as u32,
+                UnderStone as u32,
+                UnderStone as u32,
+                UnderStone as u32,
+                UnderStone as u32,
+                UnderStone as u32,
+            ],
             BlockType::UnderStone,
         );
         all_block[under_stone.block_type as usize] = under_stone;
 
         let stone = BlockInfo::new(
             "stone",
-            [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+            [
+                Stone as u32,
+                Stone as u32,
+                Stone as u32,
+                Stone as u32,
+                Stone as u32,
+                Stone as u32,
+            ],
             BlockType::Stone,
         );
         all_block[stone.block_type as usize] = stone;
 
         let dirt = BlockInfo::new(
             "dirt",
-            [[4, 0], [4, 0], [4, 0], [4, 0], [4, 0], [4, 0]],
+            [
+                Dirt as u32,
+                Dirt as u32,
+                Dirt as u32,
+                Dirt as u32,
+                Dirt as u32,
+                Dirt as u32,
+            ],
             BlockType::Dirt,
         );
         all_block[dirt.block_type as usize] = dirt;
@@ -456,16 +537,18 @@ impl RealmData {
         //创建草方块
         let grass = BlockInfo::new(
             "grass_block_side",
-            [[3, 0], [2, 0], [3, 0], [4, 0], [3, 0], [3, 0]],
+            [
+                GrassBlockSide as u32,
+                GrassBlockTop as u32,
+                GrassBlockSide as u32,
+                Dirt as u32,
+                GrassBlockSide as u32,
+                GrassBlockSide as u32,
+            ],
             BlockType::Grass,
         );
         all_block[grass.block_type as usize] = grass;
         //草方块创建完成
-
-        let mut instances: Vec<Vec<Instance>> = Vec::new();
-        for _i in 0..BLOCK_NUM {
-            instances.push(Vec::new());
-        }
 
         let wf_uniform = WireframeUniform {
             position: [0.0, 0.0, 0.0],
@@ -485,18 +568,22 @@ impl RealmData {
             panic!("invaild chunk_rad value:{}", chunk_rad);
         }
 
+        let mut instance: Vec<Instance> = Vec::with_capacity(
+            (chunk_rad * 2 + 1).pow(2) as usize * CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT,
+        );
+
         let mut chunk_map: HashMap<ChunkCoord, Chunk> = HashMap::new();
         //init chunk
         Self::load_all_chunk(chunk_rad as i32, center_chunk_pos, &mut chunk_map, name);
 
         println!("chunk_map:{}", chunk_map.len());
 
-        Self::init_instances(&mut instances, &chunk_map);
+        Self::init_instance(&mut instance, &chunk_map, chunk_rad);
 
         Self {
             all_block,
             chunk_map,
-            instances,
+            instance,
             wf_uniform,
             wf_max_len,
             is_wf_visible,
@@ -570,25 +657,40 @@ impl RealmData {
         }
     }
 
-    fn init_instances(instances: &mut Vec<Vec<Instance>>, chunk_map: &HashMap<ChunkCoord, Chunk>) {
-        for (coord, chunk) in chunk_map {
-            for (i, block) in chunk.data.blocks.iter().enumerate() {
-                let ux = i / (CHUNK_SIZE * CHUNK_HEIGHT);
-                let remainder_x = i % (CHUNK_SIZE * CHUNK_HEIGHT);
-                let uy = remainder_x / CHUNK_SIZE;
-                let uz = remainder_x % CHUNK_SIZE;
+    fn init_instance(
+        instance: &mut Vec<Instance>,
+        chunk_map: &HashMap<ChunkCoord, Chunk>,
+        chunk_rad: i32,
+    ) {
+        for chunk_x in -chunk_rad..=chunk_rad {
+            for chunk_z in -chunk_rad..=chunk_rad {
+                let chunk = chunk_map
+                    .get(&ChunkCoord {
+                        x: chunk_x,
+                        z: chunk_z,
+                    })
+                    .unwrap();
+                let chunk_base_x = chunk_x * CHUNK_SIZE as i32;
+                let chunk_base_z = chunk_z * CHUNK_SIZE as i32;
 
-                let mut x = ux as i32;
-                let y = uy as i32;
-                let mut z = uz as i32;
-
-                x += coord.x * CHUNK_SIZE as i32;
-                z += coord.z * CHUNK_SIZE as i32;
-
-                instances[block.tp as usize].push(Instance {
-                    position: [x as f32, y as f32, z as f32],
-                    material_layer: block.tp as u32,
-                });
+                // 按照x -> y -> z的顺序访问块
+                for x in 0..CHUNK_SIZE {
+                    for y in 0..CHUNK_HEIGHT {
+                        for z in 0..CHUNK_SIZE {
+                            let block = chunk.get_block(x, y, z);
+                            if block.tp != BlockType::Empty {
+                                instance.push(Instance {
+                                    position: [
+                                        (chunk_base_x + x as i32) as f32,
+                                        y as f32,
+                                        (chunk_base_z + z as i32) as f32,
+                                    ],
+                                    block_type: block.tp as u32,
+                                });
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -598,36 +700,45 @@ pub struct RenderResources {
     //pub wf_vertices: Vec<WireframeVertex>,
     pub wf_vertex_buffer: Buffer,
     pub wf_index_buffer: Buffer,
-    pub instance_buffers: Vec<Buffer>,
-    pub block_vertex_buffers: Vec<Buffer>,
+    pub instance_buffer: Buffer,
+    pub block_vertex_buffer: Buffer,
+    pub block_index_buffer: Buffer,
     pub wf_uniform_buffer: Buffer,
+    pub block_materials_buffer: Buffer,
+    pub block_materials_bind_group: BindGroup,
+    pub block_materials_bind_group_layout: BindGroupLayout,
 }
 
 impl RenderResources {
     fn new(device: &Device, data: &RealmData) -> Self {
-        let mut block_vertex_buffers: Vec<Buffer> = Vec::new();
-        for block in &data.all_block {
-            let mut vertices: [Vertex; 24] = [Vertex {
-                position: [0.0; 3],
-                tex_coords: [0.0; 2],
-            }; 24];
+        //let mut block_vertex_buffers: Vec<Buffer> = Vec::new();
+        //for block in &data.all_block {
+        //    let mut vertices: [Vertex; 24] = [Vertex {
+        //        position: [0.0; 3],
+        //        tex_coords: [0.0; 2],
+        //    }; 24];
 
-            for i in 0..6 {
-                for j in 0..4 {
-                    vertices[i * 4 + j].position = VERTICES[i * 4 + j].position;
-                    vertices[i * 4 + j].tex_coords[0] = VERTICES[i * 4 + j].tex_coords[0]
-                        + TEXT_FRAC * block.tex_offset[i][0] as f32;
-                    vertices[i * 4 + j].tex_coords[1] = VERTICES[i * 4 + j].tex_coords[1]
-                        + TEXT_FRAC * block.tex_offset[i][1] as f32;
-                }
-            }
+        //    for i in 0..6 {
+        //        for j in 0..4 {
+        //            vertices[i * 4 + j].position = VERTICES[i * 4 + j].position;
+        //            vertices[i * 4 + j].tex_coords[0] = VERTICES[i * 4 + j].tex_coords[0]
+        //                + TEXT_FRAC * block.tex_offset[i][0] as f32;
+        //            vertices[i * 4 + j].tex_coords[1] = VERTICES[i * 4 + j].tex_coords[1]
+        //                + TEXT_FRAC * block.tex_offset[i][1] as f32;
+        //        }
+        //    }
 
-            block_vertex_buffers.push(device.create_buffer_init(&util::BufferInitDescriptor {
-                label: Some(block.name),
-                contents: bytemuck::cast_slice(&vertices[..]),
-                usage: BufferUsages::VERTEX,
-            }));
-        }
+        //    block_vertex_buffers.push(device.create_buffer_init(&util::BufferInitDescriptor {
+        //        label: Some(block.name),
+        //        contents: bytemuck::cast_slice(&vertices[..]),
+        //        usage: BufferUsages::VERTEX,
+        //    }));
+        //}
+        let block_vertex_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
+            label: Some("block veretx buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: BufferUsages::VERTEX,
+        });
 
         let wf_vertices = generate_wf_vertices();
 
@@ -649,20 +760,66 @@ impl RenderResources {
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
 
-        let mut instance_buffers: Vec<Buffer> = Vec::new();
-        for i in 0..BLOCK_NUM {
-            instance_buffers.push(device.create_buffer_init(&util::BufferInitDescriptor {
-                label: Some("Block buffer"),
-                contents: bytemuck::cast_slice(&data.instances[i]),
-                usage: BufferUsages::VERTEX,
-            }));
+        let instance_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
+            label: Some("Block buffer"),
+            contents: bytemuck::cast_slice(&data.instance),
+            //这里需要支持write_buffer
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+        });
+
+        let block_index_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
+            label: Some("block index buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: BufferUsages::INDEX,
+        });
+
+        let mut block_materials: Vec<Material> = vec![Material::new(0); BLOCK_NUM * 6];
+        for (i, block) in data.all_block.iter().enumerate() {
+            for face in 0..6 {
+                block_materials[i * 6 + face] = Material::new(block.tex_offset[face]);
+            }
         }
+
+        let block_materials_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
+            label: Some("block materials buffer"),
+            contents: bytemuck::cast_slice(&block_materials),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        });
+
+        let block_materials_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("Block materials bind group layout"),
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let block_materials_bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("block materials bind group"),
+            layout: &block_materials_bind_group_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: block_materials_buffer.as_entire_binding(),
+            }],
+        });
+
         Self {
-            block_vertex_buffers,
+            block_vertex_buffer,
+            block_index_buffer,
             wf_index_buffer,
             wf_vertex_buffer,
             wf_uniform_buffer,
-            instance_buffers,
+            instance_buffer,
+            block_materials_buffer,
+            block_materials_bind_group,
+            block_materials_bind_group_layout,
             //wf_vertices,
         }
     }
@@ -826,7 +983,7 @@ impl Realm {
         //println!("updating: x{}, z{}", x_offset, z_offset);
         self.data.center_chunk_pos.x += x_offset;
         self.data.center_chunk_pos.z += z_offset;
-        self.update_instances_and_buffers(device);
+        //self.update_instances_and_buffers(device);
     }
 
     fn is_adjacent(old: &ChunkCoord, new: &ChunkCoord) -> i32 {
@@ -874,53 +1031,53 @@ impl Realm {
             }
         }
 
-        self.update_instances_and_buffers(device);
+        //self.update_instances_and_buffers(device);
     }
 
-    fn update_instances_and_buffers(&mut self, device: &Device) {
-        for v in self.data.instances.iter_mut() {
-            v.clear();
-        }
-        for (coord, chunk) in &self.data.chunk_map {
-            for (i, block) in chunk.data.blocks.iter().enumerate() {
-                let ux = i / (CHUNK_SIZE * CHUNK_HEIGHT);
-                let remainder_x = i % (CHUNK_SIZE * CHUNK_HEIGHT);
-                let uy = remainder_x / CHUNK_SIZE;
-                let uz = remainder_x % CHUNK_SIZE;
+    //fn update_instances_and_buffers(&mut self, device: &Device) {
+    //    for v in self.data.instances.iter_mut() {
+    //        v.clear();
+    //    }
+    //    for (coord, chunk) in &self.data.chunk_map {
+    //        for (i, block) in chunk.data.blocks.iter().enumerate() {
+    //            let ux = i / (CHUNK_SIZE * CHUNK_HEIGHT);
+    //            let remainder_x = i % (CHUNK_SIZE * CHUNK_HEIGHT);
+    //            let uy = remainder_x / CHUNK_SIZE;
+    //            let uz = remainder_x % CHUNK_SIZE;
 
-                let mut x = ux as i32;
-                let y = uy as i32;
-                let mut z = uz as i32;
+    //            let mut x = ux as i32;
+    //            let y = uy as i32;
+    //            let mut z = uz as i32;
 
-                x += coord.x * CHUNK_SIZE as i32;
-                z += coord.z * CHUNK_SIZE as i32;
+    //            x += coord.x * CHUNK_SIZE as i32;
+    //            z += coord.z * CHUNK_SIZE as i32;
 
-                self.data.instances[block.tp as usize].push(Instance {
-                    position: [x as f32, y as f32, z as f32],
-                    material_layer: block.tp as u32,
-                });
-            }
-        }
-        //println!(
-        //    "instances updated! chunk_map.len:{}",
-        //    self.data.chunk_map.len()
-        //);
-        //println!("now center chunk pos:{:?}", self.data.center_chunk_pos);
+    //            self.data.instances[block.tp as usize].push(Instance {
+    //                position: [x as f32, y as f32, z as f32],
+    //                block_type: block.tp as u32,
+    //            });
+    //        }
+    //    }
+    //    //println!(
+    //    //    "instances updated! chunk_map.len:{}",
+    //    //    self.data.chunk_map.len()
+    //    //);
+    //    //println!("now center chunk pos:{:?}", self.data.center_chunk_pos);
 
-        self.render_res.instance_buffers.clear();
+    //    self.render_res.instance_buffers.clear();
 
-        //for ins in &self.data.instances {
-        for i in 0..BLOCK_NUM {
-            self.render_res
-                .instance_buffers
-                .push(device.create_buffer_init(&util::BufferInitDescriptor {
-                    label: Some("Block buffer"),
-                    contents: bytemuck::cast_slice(&self.data.instances[i]),
-                    usage: BufferUsages::VERTEX,
-                }));
-        }
-        //}
-    }
+    //    //for ins in &self.data.instances {
+    //    for i in 0..BLOCK_NUM {
+    //        self.render_res
+    //            .instance_buffers
+    //            .push(device.create_buffer_init(&util::BufferInitDescriptor {
+    //                label: Some("Block buffer"),
+    //                contents: bytemuck::cast_slice(&self.data.instances[i]),
+    //                usage: BufferUsages::VERTEX,
+    //            }));
+    //    }
+    //    //}
+    //}
 }
 
 fn generate_wf_vertices() -> Vec<WireframeVertex> {

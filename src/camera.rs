@@ -122,7 +122,7 @@ impl CameraController {
         }
     }
 
-    pub fn process_events(&mut self, event: &WindowEvent, camera: &mut Camera, dt: f32) -> bool {
+    pub fn process_events(&mut self, event: &WindowEvent, camera: &mut Camera) -> bool {
         match event {
             WindowEvent::KeyboardInput {
                 event:

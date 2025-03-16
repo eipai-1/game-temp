@@ -25,7 +25,7 @@ impl Texture {
         let size = wgpu::Extent3d {
             width: dimention.0,
             height: dimention.1,
-            depth_or_array_layers: realm::BLOCK_NUM as u32,
+            depth_or_array_layers: realm::BLOCK_MATERIALS_NUM as u32,
         };
 
         let texture_array = device.create_texture(&wgpu::TextureDescriptor {
@@ -39,8 +39,8 @@ impl Texture {
             view_formats: &[],
         });
 
-        for i in 1..realm::BLOCK_NUM {
-            let path = format!("{}/{}.png", file_path, data.all_block[i].name);
+        for z in 0..realm::BLOCK_MATERIALS_NUM {
+            let path = format!("{}/{}.png", file_path, materials_enum_to_string(z));
             let bytes = std::fs::read(&path).unwrap();
 
             let img = image::load_from_memory(&bytes).unwrap();
@@ -50,7 +50,7 @@ impl Texture {
                 wgpu::ImageCopyTexture {
                     texture: &texture_array,
                     mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: z },
                     aspect: wgpu::TextureAspect::All,
                 },
                 &rgba,
@@ -203,5 +203,19 @@ impl Texture {
             view,
             sampler,
         }
+    }
+}
+
+fn materials_enum_to_string(i: u32) -> &'static str {
+    use num_traits::FromPrimitive;
+    use realm::BlockMaterials;
+    use realm::BlockMaterials::*;
+    match BlockMaterials::from_u32(i).unwrap() {
+        UnderStone => "bedrock",
+        Stone => "stone",
+        GrassBlockSide => "grass_block_side",
+        GrassBlockTop => "grass_block_top",
+        Dirt => "dirt",
+        Empty => "",
     }
 }

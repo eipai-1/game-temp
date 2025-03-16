@@ -48,8 +48,6 @@ struct State {
     basic_config: basic_config::BasicConfig,
     window: Arc<Window>,
     render_pipeline: RenderPipeline,
-    index_buffer: Buffer,
-
     //好像没用？
     //diffuse_texture: texture::Texture,
     diffuse_bind_group: BindGroup,
@@ -167,12 +165,12 @@ impl State {
         //摄像机创建完成
 
         //开始创建diffuse_bind_group
-        let diffuse_bytes = include_bytes!("../res/tile_map.png");
-        let diffuse_texture = texture::Texture::from_bytes(
+        //let diffuse_bytes = include_bytes!("../res/tile_map.png");
+        let diffuse_texture = texture::Texture::load_blocks(
+            "res/texture",
             &basic_config.device,
             &basic_config.queue,
-            diffuse_bytes,
-            "tile_map",
+            &realm.data,
         )
         .unwrap();
 
@@ -187,7 +185,7 @@ impl State {
                             visibility: ShaderStages::FRAGMENT,
                             ty: BindingType::Texture {
                                 sample_type: TextureSampleType::Float { filterable: true },
-                                view_dimension: TextureViewDimension::D2,
+                                view_dimension: TextureViewDimension::D2Array,
                                 multisampled: false,
                             },
                             count: None,
@@ -228,14 +226,6 @@ impl State {
                 source: ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
             });
 
-        let index_buffer = basic_config
-            .device
-            .create_buffer_init(&util::BufferInitDescriptor {
-                label: Some("Index buffer"),
-                contents: bytemuck::cast_slice(realm::INDICES),
-                usage: BufferUsages::INDEX,
-            });
-
         //let num_indices = realm::INDICES.len() as u32;
 
         let render_pipeline_layout =
@@ -243,7 +233,11 @@ impl State {
                 .device
                 .create_pipeline_layout(&PipelineLayoutDescriptor {
                     label: Some("First render pipeline layout"),
-                    bind_group_layouts: &[&camera_bind_group_layout, &texture_bind_group_layout],
+                    bind_group_layouts: &[
+                        &camera_bind_group_layout,
+                        &texture_bind_group_layout,
+                        &realm.render_res.block_materials_bind_group_layout,
+                    ],
                     push_constant_ranges: &[],
                 });
 
@@ -371,7 +365,6 @@ impl State {
             basic_config,
             window,
             render_pipeline,
-            index_buffer,
             //diffuse_texture,
             diffuse_bind_group,
 
@@ -428,7 +421,7 @@ impl State {
                 .unwrap();
         }
         self.camera_controller
-            .process_events(event, &mut self.camera, self.dt as f32)
+            .process_events(event, &mut self.camera)
     }
 
     fn update(&mut self) {
@@ -440,8 +433,8 @@ impl State {
         self.camera_uniform
             .update_view_proj(&self.camera, &self.projection);
 
-        self.realm
-            .update(&self.camera.position, &self.basic_config.device);
+        //self.realm
+        //    .update(&self.camera.position, &self.basic_config.device);
 
         self.basic_config.queue.write_buffer(
             &self.camera_buffer,
@@ -498,26 +491,37 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
-
-            for block in self.realm.data.all_block.iter().skip(1) {
-                if self.realm.data.instances[block.block_type as usize].len() == 0 {
-                    continue;
-                }
-                render_pass.set_vertex_buffer(
-                    0,
-                    self.realm.render_res.block_vertex_buffers[block.block_type as usize].slice(..),
-                );
-                render_pass.set_vertex_buffer(
-                    1,
-                    self.realm.render_res.instance_buffers[block.block_type as usize].slice(..),
-                );
-                render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
-                render_pass.draw_indexed(
-                    0..realm::INDICES.len() as u32,
-                    0,
-                    0..self.realm.data.instances[block.block_type as usize].len() as _,
-                );
-            }
+            render_pass.set_bind_group(2, &self.realm.render_res.block_materials_bind_group, &[]);
+            //for block in self.realm.data.all_block.iter().skip(1) {
+            //    if self.realm.data.instances[block.block_type as usize].len() == 0 {
+            //        continue;
+            //    }
+            //    render_pass.set_vertex_buffer(
+            //        0,
+            //        self.realm.render_res.block_vertex_buffers[block.block_type as usize].slice(..),
+            //    );
+            //    render_pass.set_vertex_buffer(
+            //        1,
+            //        self.realm.render_res.instance_buffers[block.block_type as usize].slice(..),
+            //    );
+            //    render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
+            //    render_pass.draw_indexed(
+            //        0..realm::INDICES.len() as u32,
+            //        0,
+            //        0..self.realm.data.instances[block.block_type as usize].len() as _,
+            //    );
+            //}
+            render_pass.set_vertex_buffer(0, self.realm.render_res.block_vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.realm.render_res.instance_buffer.slice(..));
+            render_pass.set_index_buffer(
+                self.realm.render_res.block_index_buffer.slice(..),
+                IndexFormat::Uint16,
+            );
+            render_pass.draw_indexed(
+                0..realm::INDICES.len() as _,
+                0,
+                0..self.realm.data.instance.len() as _,
+            );
 
             //绘制线框
             if self.realm.data.is_wf_visible {
@@ -562,6 +566,9 @@ impl State {
                 .default_open(true)
                 .show(self.egui_renderer.context(), |ui| {
                     ui.label(format!("FPS:{}", self.egui_renderer.fps as u32));
+                    ui.label(format!("x:{}", self.camera.position.x));
+                    ui.label(format!("y:{}", self.camera.position.y));
+                    ui.label(format!("z:{}", self.camera.position.z));
 
                     if ui.button("start benchmark").clicked() {
                         self.benchmark.start(&mut self.camera);

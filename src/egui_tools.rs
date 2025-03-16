@@ -1,3 +1,8 @@
+/*
+ * Author @ejb004
+ * From https://github.com/ejb004/egui-wgpu-demo
+ */
+
 use core::f64;
 
 use egui::Context;
