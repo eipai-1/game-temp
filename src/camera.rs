@@ -194,7 +194,23 @@ impl CameraController {
             } => {
                 //println!("left mouse button pressed");
                 if let Some(selected_block) = self.selected_block {
-                    realm.destory_block(selected_block, queue);
+                    realm.place_block(selected_block, realm::BLOCK_EMPTY, queue);
+                }
+                true
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Right,
+                ..
+            } => {
+                if let Some(pre_selected_block) = self.pre_selected_block {
+                    realm.place_block(
+                        pre_selected_block,
+                        realm::Block {
+                            tp: realm::BlockType::Stone,
+                        },
+                        queue,
+                    );
                 }
                 true
             }

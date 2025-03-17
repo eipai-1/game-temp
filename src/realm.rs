@@ -13,7 +13,7 @@ use cgmath::*;
 
 pub const TEXT_FRAC: f32 = 16.0 / 512.0;
 const WF_SIZE: f32 = 0.01;
-const WF_WIDTH: f32 = 0.1;
+const WF_WIDTH: f32 = 0.02;
 pub const VERTICES: &[Vertex] = &[
     //方块坐标：其中每条边都从原点向每个轴的正方向延伸一格
     //按照正-上-后-下-左-右的顺序
@@ -1109,7 +1109,12 @@ impl Realm {
 
             // 检查 y 坐标是否在有效范围内
             if coord.y >= 0 && coord.y < CHUNK_HEIGHT as i32 {
-                chunk.set_block(local_coord.x, local_coord.y, local_coord.z, block);
+                chunk.set_block(
+                    local_coord.x as usize,
+                    local_coord.y as usize,
+                    local_coord.z as usize,
+                    block,
+                );
 
                 // 标记区块为需要更新状态
                 chunk
@@ -1119,38 +1124,41 @@ impl Realm {
         }
     }
 
-    pub fn destory_block(&mut self, block_coord: Point3<i32>, queue: &Queue) {
+    pub fn place_block(&mut self, block_coord: Point3<i32>, block: Block, queue: &Queue) {
+        self.set_block(block_coord, block);
         let chunk_coord = get_chunk_coord(block_coord.x, block_coord.z);
-        if let Some(chunk) = self.data.chunk_map.get_mut(&chunk_coord) {
-            let local_coord = get_local_coord(block_coord);
-
-            chunk.set_block(local_coord.x, local_coord.y, local_coord.z, BLOCK_EMPTY);
-            queue.write_buffer(
-                &self.render_res.instance_buffer,
-                self.get_offset(&chunk_coord, &block_coord),
-                bytemuck::bytes_of(&Instance {
-                    position: [
-                        block_coord.x as f32,
-                        block_coord.y as f32,
-                        block_coord.z as f32,
-                    ],
-                    block_type: BlockType::Empty as u32,
-                }),
-            );
-        }
+        let block_offset = get_local_coord(block_coord);
+        queue.write_buffer(
+            &self.render_res.instance_buffer,
+            self.get_offset(&chunk_coord, &block_offset),
+            bytemuck::bytes_of(&Instance {
+                position: [
+                    block_coord.x as f32,
+                    block_coord.y as f32,
+                    block_coord.z as f32,
+                ],
+                block_type: block.tp as u32,
+            }),
+        );
     }
 
-    fn get_offset(&self, chunk_coord: &ChunkCoord, block_coord: &Point3<i32>) -> u64 {
+    fn get_offset(&self, chunk_coord: &ChunkCoord, block_offset: &Point3<i32>) -> u64 {
         let size = CHUNK_SIZE as i32;
         let height = CHUNK_HEIGHT as i32;
-        ((chunk_coord.x - (self.data.center_chunk_pos.x - self.data.chunk_rad))
-            * (self.data.chunk_rad * 2 + 1)
-            + (chunk_coord.z - (self.data.center_chunk_pos.z - self.data.chunk_rad))
-                * (size * size * height)
-            + block_coord.x * size * height
-            + block_coord.y * height
-            + block_coord.z) as u64
-            * size_of::<Instance>() as u64
+        let instances_per_chunk = size * size * height;
+        let chunk_x_offset = chunk_coord.x - (self.data.center_chunk_pos.x - self.data.chunk_rad);
+        let chunk_z_offset = chunk_coord.z - (self.data.center_chunk_pos.z - self.data.chunk_rad);
+        //区块偏移量 = x轴 + y轴 * 区块边长
+        //总区块偏移量 = 区块偏移量 * 区块实例数
+        let chunk_base_offset =
+            (chunk_x_offset * (self.data.chunk_rad * 2 + 1) + chunk_z_offset) * instances_per_chunk;
+
+        let block_offset =
+            block_offset.x * (size * height) + block_offset.y * size + block_offset.z;
+
+        //总方块数 = 区块偏移量 + 区块内偏移量
+        //总偏移量 = 总方块数 * 实例大小
+        ((chunk_base_offset + block_offset) as u64) * std::mem::size_of::<Instance>() as u64
     }
 }
 
@@ -1258,11 +1266,11 @@ pub fn get_chunk_coord(x: i32, z: i32) -> ChunkCoord {
     ChunkCoord::new(chunk_x, chunk_z)
 }
 
-pub fn get_local_coord(coord: Point3<i32>) -> Point3<usize> {
+pub fn get_local_coord(coord: Point3<i32>) -> Point3<i32> {
     let chunk_size = CHUNK_SIZE as i32;
-    let local_x = coord.x.rem_euclid(chunk_size) as usize;
-    let local_z = coord.z.rem_euclid(chunk_size) as usize;
-    Point3::new(local_x, coord.y as usize, local_z)
+    let local_x = coord.x.rem_euclid(chunk_size);
+    let local_z = coord.z.rem_euclid(chunk_size);
+    Point3::new(local_x, coord.y, local_z)
 }
 
 #[cfg(test)]
