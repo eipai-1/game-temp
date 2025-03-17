@@ -2,7 +2,7 @@ use crate::egui_tools::EguiRenderer;
 use egui_wgpu::ScreenDescriptor;
 use instant::Instant;
 use pollster::FutureExt;
-use std::{fmt::format, iter, sync::Arc};
+use std::{iter, sync::Arc};
 use util::DeviceExt;
 use wgpu::*;
 use winit::{
@@ -437,8 +437,11 @@ impl State {
         self.camera_uniform
             .update_view_proj(&self.camera, &self.projection);
 
-        //self.realm
-        //    .update(&self.camera.position, &self.basic_config.device);
+        self.realm.update(
+            &self.camera.position,
+            &self.basic_config.device,
+            &self.basic_config.queue,
+        );
 
         self.basic_config.queue.write_buffer(
             &self.camera_buffer,
@@ -591,8 +594,8 @@ impl State {
                         ));
                     }
 
-                    if ui.button("print chunk map").clicked() {
-                        realm::RealmData::debug_print_chunk_map(&self.realm.data.chunk_map);
+                    if ui.button("print chunk map num").clicked() {
+                        println!("chunk map num:{}", self.realm.data.chunk_map.len());
                     }
 
                     if ui.button("start benchmark").clicked() {

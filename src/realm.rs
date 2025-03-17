@@ -175,8 +175,9 @@ pub const WIREFRAME_INDCIES: &[u16] = &[
     8,  11, 27, 8,  27, 24,
 ];
 
-const CHUNK_SIZE: usize = 2;
-const CHUNK_HEIGHT: usize = 5;
+const CHUNK_SIZE: i32 = 2;
+const CHUNK_HEIGHT: i32 = 5;
+const BLOCK_NUM_PER_CHUNK: usize = (CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT) as usize;
 
 const WORLD_FILE_DIR: &str = "./worlds";
 
@@ -217,15 +218,6 @@ pub enum BlockMaterials {
     GrassBlockSide = 2,
     GrassBlockTop = 3,
     Dirt = 4,
-}
-
-#[allow(unused)]
-enum AdjacentState {
-    PosX,
-    NegX,
-    PosZ,
-    NegZ,
-    Same,
 }
 
 #[allow(unused)]
@@ -404,12 +396,12 @@ impl Chunk {
         Self { data, is_dirty }
     }
 
-    fn get_block(&self, x: usize, y: usize, z: usize) -> Block {
-        return self.data.blocks[x * CHUNK_SIZE * CHUNK_HEIGHT + y * CHUNK_SIZE + z];
+    fn get_block(&self, x: i32, y: i32, z: i32) -> Block {
+        return self.data.blocks[(x * CHUNK_SIZE * CHUNK_HEIGHT + y * CHUNK_SIZE + z) as usize];
     }
 
-    pub fn set_block(&mut self, x: usize, y: usize, z: usize, block: Block) {
-        self.data.blocks[x * CHUNK_SIZE * CHUNK_HEIGHT + y * CHUNK_SIZE + z] = block;
+    pub fn set_block(&mut self, x: i32, y: i32, z: i32, block: Block) {
+        self.data.blocks[(x * CHUNK_SIZE * CHUNK_HEIGHT + y * CHUNK_SIZE + z) as usize] = block;
     }
 
     fn save(&self, world_dir: &str, coord: &ChunkCoord) -> anyhow::Result<()> {
@@ -444,13 +436,32 @@ impl Chunk {
 
         let chunk: ChunkData = bincode::deserialize(&data).context("解析区块数据失败")?;
 
-        if chunk.blocks.len() != CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT {
+        if chunk.blocks.len() != BLOCK_NUM_PER_CHUNK {
             anyhow::bail!("区块数据损坏：方块数量不匹配");
         }
 
         Ok(Some(chunk))
     }
     //i为blocks的索引
+
+    pub fn get_instance(&self, coord: &ChunkCoord) {
+        let mut instance = Vec::with_capacity(BLOCK_NUM_PER_CHUNK);
+        for x in 0..CHUNK_SIZE {
+            for y in 0..CHUNK_HEIGHT {
+                for z in 0..CHUNK_SIZE {
+                    let block = self.get_block(x, y, z);
+                    instance.push(Instance {
+                        position: [
+                            (x + coord.x * CHUNK_SIZE) as f32,
+                            y as f32,
+                            (z + coord.z * CHUNK_SIZE) as f32,
+                        ],
+                        block_type: block.tp as u32,
+                    });
+                }
+            }
+        }
+    }
 }
 
 pub struct Realm {
@@ -555,7 +566,7 @@ impl RealmData {
             _padding: 0.0,
         };
 
-        let wf_max_len: f32 = 8.0;
+        let wf_max_len: f32 = 12.0;
 
         let is_wf_visible = true;
 
@@ -568,9 +579,8 @@ impl RealmData {
             panic!("invaild chunk_rad value:{}", chunk_rad);
         }
 
-        let mut instance: Vec<Instance> = Vec::with_capacity(
-            (chunk_rad * 2 + 1).pow(2) as usize * CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT,
-        );
+        let mut instance: Vec<Instance> =
+            Vec::with_capacity((chunk_rad * 2 + 1).pow(2) as usize * BLOCK_NUM_PER_CHUNK);
 
         let mut chunk_map: HashMap<ChunkCoord, Chunk> = HashMap::new();
         //init chunk
@@ -579,7 +589,7 @@ impl RealmData {
         println!("chunk_map.len():{}", chunk_map.len());
         //Self::debug_print_chunk_map(&chunk_map);
 
-        Self::init_instance(&mut instance, &chunk_map, chunk_rad);
+        Self::init_instance(&mut instance, &chunk_map, chunk_rad, center_chunk_pos);
 
         Self {
             all_block,
@@ -619,7 +629,7 @@ impl RealmData {
         }
 
         let chunk = self.chunk_map.get(&coord).unwrap();
-        return chunk.get_block(x as usize, y as usize, z as usize);
+        return chunk.get_block(x, y, z);
     }
 
     pub fn update_wf_uniform(&mut self, new_position: Point3<i32>) {
@@ -630,20 +640,20 @@ impl RealmData {
         ];
     }
 
-    //以chunk_pos为中心,chunk_rad为半径加载正方形区块
+    //以center_chunk_pos为中心,chunk_rad为半径加载正方形区块
     //加载全部需要的区块
     fn load_all_chunk(
         chunk_rad: i32,
-        chunk_pos: ChunkCoord,
+        center_chunk_pos: ChunkCoord,
         chunk_map: &mut HashMap<ChunkCoord, Chunk>,
         world_dir: &str,
     ) {
         for relative_x in -chunk_rad..=chunk_rad {
             for relative_z in -chunk_rad..=chunk_rad {
-                let x = chunk_pos.x + relative_x;
-                let z = chunk_pos.z + relative_z;
+                let x = center_chunk_pos.x + relative_x;
+                let z = center_chunk_pos.z + relative_z;
                 let coord = ChunkCoord::new(x, z);
-                Realm::load_chunk(&coord, chunk_map, world_dir);
+                Realm::init_chunk(&coord, chunk_map, world_dir);
             }
         }
     }
@@ -678,21 +688,20 @@ impl RealmData {
         }
     }
 
+    //根据center_chunk_pos初始化全部实例
     fn init_instance(
         instance: &mut Vec<Instance>,
         chunk_map: &HashMap<ChunkCoord, Chunk>,
         chunk_rad: i32,
+        center_chunk_pos: ChunkCoord,
     ) {
-        for chunk_x in -chunk_rad..=chunk_rad {
-            for chunk_z in -chunk_rad..=chunk_rad {
-                let chunk = chunk_map
-                    .get(&ChunkCoord {
-                        x: chunk_x,
-                        z: chunk_z,
-                    })
-                    .unwrap();
-                let chunk_base_x = chunk_x * CHUNK_SIZE as i32;
-                let chunk_base_z = chunk_z * CHUNK_SIZE as i32;
+        for dx in -chunk_rad..=chunk_rad {
+            for dz in -chunk_rad..=chunk_rad {
+                let x = dx + center_chunk_pos.x;
+                let z = dz + center_chunk_pos.z;
+                let chunk = chunk_map.get(&ChunkCoord { x, z }).unwrap();
+                let chunk_base_x = x * CHUNK_SIZE as i32;
+                let chunk_base_z = z * CHUNK_SIZE as i32;
 
                 // 按照x -> y -> z的顺序访问块
                 for x in 0..CHUNK_SIZE {
@@ -732,29 +741,6 @@ pub struct RenderResources {
 
 impl RenderResources {
     fn new(device: &Device, data: &RealmData) -> Self {
-        //let mut block_vertex_buffers: Vec<Buffer> = Vec::new();
-        //for block in &data.all_block {
-        //    let mut vertices: [Vertex; 24] = [Vertex {
-        //        position: [0.0; 3],
-        //        tex_coords: [0.0; 2],
-        //    }; 24];
-
-        //    for i in 0..6 {
-        //        for j in 0..4 {
-        //            vertices[i * 4 + j].position = VERTICES[i * 4 + j].position;
-        //            vertices[i * 4 + j].tex_coords[0] = VERTICES[i * 4 + j].tex_coords[0]
-        //                + TEXT_FRAC * block.tex_offset[i][0] as f32;
-        //            vertices[i * 4 + j].tex_coords[1] = VERTICES[i * 4 + j].tex_coords[1]
-        //                + TEXT_FRAC * block.tex_offset[i][1] as f32;
-        //        }
-        //    }
-
-        //    block_vertex_buffers.push(device.create_buffer_init(&util::BufferInitDescriptor {
-        //        label: Some(block.name),
-        //        contents: bytemuck::cast_slice(&vertices[..]),
-        //        usage: BufferUsages::VERTEX,
-        //    }));
-        //}
         let block_vertex_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
             label: Some("block veretx buffer"),
             contents: bytemuck::cast_slice(VERTICES),
@@ -781,12 +767,7 @@ impl RenderResources {
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
 
-        let instance_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
-            label: Some("Block buffer"),
-            contents: bytemuck::cast_slice(&data.instance),
-            //这里需要支持write_buffer
-            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-        });
+        let instance_buffer = Self::init_instance_buffer(device, data);
 
         let block_index_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
             label: Some("block index buffer"),
@@ -844,6 +825,14 @@ impl RenderResources {
             //wf_vertices,
         }
     }
+
+    pub fn init_instance_buffer(device: &Device, data: &RealmData) -> Buffer {
+        device.create_buffer_init(&util::BufferInitDescriptor {
+            label: Some("Block buffer"),
+            contents: bytemuck::cast_slice(&data.instance),
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+        })
+    }
 }
 
 impl Realm {
@@ -854,12 +843,18 @@ impl Realm {
         Self { data, render_res }
     }
 
-    //加载指定的区块
-    fn load_chunk(
+    //区块初始化
+    fn init_chunk(
         chunk_pos: &ChunkCoord,
         chunk_map: &mut HashMap<ChunkCoord, Chunk>,
         world_dir: &str,
-    ) {
+    ) -> Vec<Instance> {
+        let mut instance: Vec<Instance> = Vec::with_capacity(BLOCK_NUM_PER_CHUNK);
+
+        if instance.capacity() != BLOCK_NUM_PER_CHUNK {
+            panic!("instance capacity error");
+        }
+
         match chunk_map.get(chunk_pos) {
             //存在就不要重复添加
             Some(_) => {}
@@ -873,7 +868,10 @@ impl Realm {
 
                     //不存在则生成
                     Ok(None) => {
-                        let blocks = vec![Block::default(); CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT];
+                        let blocks = vec![
+                            Block::default();
+                            (CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT) as usize
+                        ];
 
                         let chunk_data = ChunkData { blocks };
                         let mut chunk = Chunk::new(chunk_data);
@@ -890,6 +888,14 @@ impl Realm {
                                     } else if y == 0 {
                                         chunk.set_block(x, y, z, Block::new(BlockType::UnderStone));
                                     }
+                                    instance.push(Instance {
+                                        position: [
+                                            (x + chunk_pos.x * CHUNK_SIZE) as f32,
+                                            y as f32,
+                                            (z + chunk_pos.z * CHUNK_SIZE) as f32,
+                                        ],
+                                        block_type: chunk.get_block(x, y, z).tp as u32,
+                                    });
                                 }
                             }
                         }
@@ -904,204 +910,98 @@ impl Realm {
                 };
             }
         }
+        instance
     }
 
-    pub fn update(&mut self, player_pos: &Point3<f32>, device: &Device) {
-        let coord = get_chunk_coord(player_pos.x as i32, player_pos.z as i32);
-        match Self::is_adjacent(&self.data.center_chunk_pos, &coord) {
-            //Same Chunk
-            0 => {}
+    fn load_chunk(
+        &mut self,
+        new_chunk_pos: &ChunkCoord,
+        old_chunk_pos: &ChunkCoord,
+        queue: &Queue,
+    ) {
+        let instance = Self::init_chunk(new_chunk_pos, &mut self.data.chunk_map, self.data.name);
+        queue.write_buffer(
+            &self.render_res.instance_buffer,
+            self.get_offset(old_chunk_pos, &Point3::new(0, 0, 0)),
+            bytemuck::cast_slice(&instance),
+        );
+    }
 
-            //新添加一排，删除一排
-            //load new chunk and unload old chunk
-            1 => {
-                for x in -self.data.chunk_rad..=self.data.chunk_rad {
-                    self.data.chunk_map.remove(&ChunkCoord::new(
-                        self.data.center_chunk_pos.x + x,
-                        self.data.center_chunk_pos.z + self.data.chunk_rad,
-                    ));
-                }
-                for x in -self.data.chunk_rad..=self.data.chunk_rad {
-                    Self::load_chunk(
-                        &ChunkCoord::new(
-                            self.data.center_chunk_pos.x + x,
-                            coord.z - self.data.chunk_rad,
-                        ),
-                        &mut self.data.chunk_map,
-                        &self.data.name,
-                    );
-                }
-                self.update_helper(0, -1, device);
-            }
-            2 => {
-                for x in -self.data.chunk_rad..=self.data.chunk_rad {
-                    self.data.chunk_map.remove(&ChunkCoord::new(
-                        self.data.center_chunk_pos.x + x,
-                        self.data.center_chunk_pos.z - self.data.chunk_rad,
-                    ));
-                }
-                for x in -self.data.chunk_rad..=self.data.chunk_rad {
-                    Self::load_chunk(
-                        &ChunkCoord::new(
-                            self.data.center_chunk_pos.x + x,
-                            coord.z + self.data.chunk_rad,
-                        ),
-                        &mut self.data.chunk_map,
-                        &self.data.name,
-                    );
-                }
-                self.update_helper(0, 1, device);
-            }
-            3 => {
-                for z in -self.data.chunk_rad..=self.data.chunk_rad {
-                    self.data.chunk_map.remove(&ChunkCoord::new(
-                        &self.data.center_chunk_pos.x + self.data.chunk_rad,
-                        self.data.center_chunk_pos.z + z,
-                    ));
-                }
-                for z in -self.data.chunk_rad..=self.data.chunk_rad {
-                    Self::load_chunk(
-                        &ChunkCoord::new(
-                            &coord.x - self.data.chunk_rad,
-                            &self.data.center_chunk_pos.z + z,
-                        ),
-                        &mut self.data.chunk_map,
-                        &self.data.name,
-                    );
-                }
-                self.update_helper(-1, 0, device);
-            }
-            4 => {
-                for z in -self.data.chunk_rad..=self.data.chunk_rad {
-                    self.data.chunk_map.remove(&ChunkCoord::new(
-                        &self.data.center_chunk_pos.x - self.data.chunk_rad,
-                        self.data.center_chunk_pos.z + z,
-                    ));
-                }
-                for z in -self.data.chunk_rad..=self.data.chunk_rad {
-                    Self::load_chunk(
-                        &ChunkCoord::new(
-                            &coord.x + self.data.chunk_rad,
-                            self.data.center_chunk_pos.z + z,
-                        ),
-                        &mut self.data.chunk_map,
-                        &self.data.name,
-                    );
-                }
-                self.update_helper(1, 0, device);
-            }
-            5 => {
-                println!("reload!");
-                self.reload_chunk(&coord, device);
-            }
-            _ => {
-                panic!("unreachable?");
+    fn unload_chunk(&mut self, chunk_pos: &ChunkCoord) {
+        self.data.chunk_map.remove(chunk_pos);
+    }
+
+    //记得更新center_chunk_pos
+    pub fn update(&mut self, player_pos: &Point3<f32>, device: &Device, queue: &Queue) {
+        let new_coord = get_chunk_coord(player_pos.x as i32, player_pos.z as i32);
+        let dx = new_coord.x - self.data.center_chunk_pos.x;
+        let dz = new_coord.z - self.data.center_chunk_pos.z;
+
+        if dx == 0 && dz == 0 {
+            return;
+        }
+
+        if dx >= -1 && dx <= 1 && dz >= -1 && dz <= 1 {
+            self.update_helper(dx, dz, queue);
+        } else {
+            self.reload_all_chunk(&new_coord, device);
+        }
+        //记得更新中心位置
+        self.data.center_chunk_pos = new_coord;
+    }
+
+    //两个offset都只有-1, 0, 1三个值
+    //此时的区块中心还没更新
+    fn update_helper(&mut self, x_offset: i32, z_offset: i32, queue: &Queue) {
+        if z_offset != 0 {
+            for x in -self.data.chunk_rad..=self.data.chunk_rad {
+                let old_chunk_pos = ChunkCoord::new(
+                    self.data.center_chunk_pos.x + x,
+                    self.data.center_chunk_pos.z - self.data.chunk_rad * z_offset,
+                );
+                let new_chunk_pos = ChunkCoord::new(
+                    self.data.center_chunk_pos.x + x,
+                    self.data.center_chunk_pos.z + (self.data.chunk_rad + 1) * z_offset,
+                );
+                self.unload_chunk(&old_chunk_pos);
+                self.load_chunk(&new_chunk_pos, &old_chunk_pos, queue);
             }
         }
-    }
-
-    fn update_helper(&mut self, x_offset: i32, z_offset: i32, device: &Device) {
-        //println!("updating: x{}, z{}", x_offset, z_offset);
-        self.data.center_chunk_pos.x += x_offset;
-        self.data.center_chunk_pos.z += z_offset;
-        //self.update_instances_and_buffers(device);
-    }
-
-    fn is_adjacent(old: &ChunkCoord, new: &ChunkCoord) -> i32 {
-        if old.x == new.x {
-            if old.z == new.z {
-                return 0;
-            }
-
-            //newz = oldz - 1
-            if old.z - new.z == 1 {
-                return 1;
-
-            //newz = oldz + 1
-            } else if new.z - old.z == 1 {
-                return 2;
-            }
-        } else if old.z == new.z {
-            //newx = oldx - 1
-            if old.x - new.x == 1 {
-                return 3;
-
-            //newx = oldx + 1
-            } else if new.x - old.x == 1 {
-                return 4;
-            }
-        }
-        5
-    }
-
-    fn reload_chunk(&mut self, new_coord: &ChunkCoord, device: &Device) {
-        self.data.center_chunk_pos = *new_coord;
-        self.data.chunk_map.retain(|k, _v| {
-            // 修正2：使用绝对值判断是否在半径范围内
-            let dx = (k.x - self.data.center_chunk_pos.x).abs();
-            let dz = (k.z - self.data.center_chunk_pos.z).abs();
-            // 保留半径范围内的区块，删除范围外的
-            dx <= self.data.chunk_rad && dz <= self.data.chunk_rad
-        });
-        for x in -self.data.chunk_rad..=self.data.chunk_rad {
+        if x_offset != 0 {
             for z in -self.data.chunk_rad..=self.data.chunk_rad {
-                let c = ChunkCoord::new(new_coord.x + x, new_coord.z + z);
-                if !self.data.chunk_map.contains_key(&c) {
-                    Self::load_chunk(&c, &mut self.data.chunk_map, &self.data.name);
-                }
+                let old_chunk_pos = ChunkCoord::new(
+                    self.data.center_chunk_pos.x - self.data.chunk_rad * x_offset,
+                    self.data.center_chunk_pos.z + z,
+                );
+                let new_chunk_pos = ChunkCoord::new(
+                    self.data.center_chunk_pos.x + (self.data.chunk_rad + 1) * x_offset,
+                    self.data.center_chunk_pos.z + z,
+                );
+                self.unload_chunk(&old_chunk_pos);
+                self.load_chunk(&new_chunk_pos, &old_chunk_pos, queue);
             }
         }
-
-        //self.update_instances_and_buffers(device);
     }
 
-    //fn update_instances_and_buffers(&mut self, device: &Device) {
-    //    for v in self.data.instances.iter_mut() {
-    //        v.clear();
-    //    }
-    //    for (coord, chunk) in &self.data.chunk_map {
-    //        for (i, block) in chunk.data.blocks.iter().enumerate() {
-    //            let ux = i / (CHUNK_SIZE * CHUNK_HEIGHT);
-    //            let remainder_x = i % (CHUNK_SIZE * CHUNK_HEIGHT);
-    //            let uy = remainder_x / CHUNK_SIZE;
-    //            let uz = remainder_x % CHUNK_SIZE;
+    fn reload_all_chunk(&mut self, new_coord: &ChunkCoord, device: &Device) {
+        RealmData::load_all_chunk(
+            self.data.chunk_rad,
+            *new_coord,
+            &mut self.data.chunk_map,
+            self.data.name,
+        );
+        RealmData::init_instance(
+            &mut self.data.instance,
+            &self.data.chunk_map,
+            self.data.chunk_rad,
+            *new_coord,
+        );
 
-    //            let mut x = ux as i32;
-    //            let y = uy as i32;
-    //            let mut z = uz as i32;
-
-    //            x += coord.x * CHUNK_SIZE as i32;
-    //            z += coord.z * CHUNK_SIZE as i32;
-
-    //            self.data.instances[block.tp as usize].push(Instance {
-    //                position: [x as f32, y as f32, z as f32],
-    //                block_type: block.tp as u32,
-    //            });
-    //        }
-    //    }
-    //    //println!(
-    //    //    "instances updated! chunk_map.len:{}",
-    //    //    self.data.chunk_map.len()
-    //    //);
-    //    //println!("now center chunk pos:{:?}", self.data.center_chunk_pos);
-
-    //    self.render_res.instance_buffers.clear();
-
-    //    //for ins in &self.data.instances {
-    //    for i in 0..BLOCK_NUM {
-    //        self.render_res
-    //            .instance_buffers
-    //            .push(device.create_buffer_init(&util::BufferInitDescriptor {
-    //                label: Some("Block buffer"),
-    //                contents: bytemuck::cast_slice(&self.data.instances[i]),
-    //                usage: BufferUsages::VERTEX,
-    //            }));
-    //    }
-    //    //}
-    //}
+        self.render_res.instance_buffer = RenderResources::init_instance_buffer(device, &self.data);
+    }
 
     //返回位置是否合法
-    fn set_block(&mut self, coord: Point3<i32>, block: Block) -> bool {
+    fn set_single_block(&mut self, coord: Point3<i32>, block: Block) -> bool {
         let chunk_coord = get_chunk_coord(coord.x, coord.z);
 
         // 检查区块是否存在
@@ -1110,12 +1010,7 @@ impl Realm {
 
             // 检查 y 坐标是否在有效范围内
             if coord.y >= 0 && coord.y < CHUNK_HEIGHT as i32 {
-                chunk.set_block(
-                    local_coord.x as usize,
-                    local_coord.y as usize,
-                    local_coord.z as usize,
-                    block,
-                );
+                chunk.set_block(local_coord.x, local_coord.y, local_coord.z, block);
 
                 // 标记区块为需要更新状态
                 chunk
@@ -1128,7 +1023,7 @@ impl Realm {
     }
 
     pub fn place_block(&mut self, block_coord: Point3<i32>, block: Block, queue: &Queue) {
-        if self.set_block(block_coord, block) {
+        if self.set_single_block(block_coord, block) {
             let chunk_coord = get_chunk_coord(block_coord.x, block_coord.z);
             let block_offset = get_local_coord(block_coord);
             queue.write_buffer(
@@ -1146,6 +1041,7 @@ impl Realm {
         }
     }
 
+    //block_offset是区块内的方块偏移量
     fn get_offset(&self, chunk_coord: &ChunkCoord, block_offset: &Point3<i32>) -> u64 {
         let size = CHUNK_SIZE as i32;
         let height = CHUNK_HEIGHT as i32;
