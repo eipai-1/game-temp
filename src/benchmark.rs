@@ -3,7 +3,7 @@ use crate::camera;
 #[derive(Debug)]
 pub struct Benchmark {
     pub is_active: bool,
-    first_active_flag: bool,
+    //first_active_flag: bool,
     pub sample_count: u32,
     total_sample_count: u32,
     pub has_output: bool,
@@ -30,7 +30,7 @@ impl Benchmark {
         let period = 1.0;
         let period_dt = 0.0;
         let has_output = false;
-        let first_active_flag = true;
+        //let first_active_flag = true;
         Self {
             sample_count,
             avg_fps,
@@ -42,7 +42,7 @@ impl Benchmark {
             total_sample_count,
             total_fps,
             has_output,
-            first_active_flag,
+            //first_active_flag,
         }
     }
 

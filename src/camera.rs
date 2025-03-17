@@ -99,6 +99,8 @@ pub struct CameraController {
     pub is_up_pressed: bool,
     pub is_down_pressed: bool,
     pub fov_sensitivity: f32,
+    pub selected_block: Option<Point3<i32>>,
+    pub pre_selected_block: Option<Point3<i32>>,
     dx: f32,
     dy: f32,
 }
@@ -119,10 +121,18 @@ impl CameraController {
             fov_sensitivity: 0.003,
             dx: 0.0,
             dy: 0.0,
+            selected_block: None,
+            pre_selected_block: None,
         }
     }
 
-    pub fn process_events(&mut self, event: &WindowEvent, camera: &mut Camera) -> bool {
+    pub fn process_events(
+        &mut self,
+        event: &WindowEvent,
+        camera: &mut Camera,
+        realm: &mut realm::Realm,
+        queue: &wgpu::Queue,
+    ) -> bool {
         match event {
             WindowEvent::KeyboardInput {
                 event:
@@ -177,6 +187,17 @@ impl CameraController {
                 self.is_fov = false;
                 true
             }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => {
+                //println!("left mouse button pressed");
+                if let Some(selected_block) = self.selected_block {
+                    realm.destory_block(selected_block, queue);
+                }
+                true
+            }
             WindowEvent::CursorMoved { position, .. } if self.is_fov => {
                 self.dx = (self.center_x as f64 - position.x) as f32;
                 self.dy = (self.center_y as f64 - position.y) as f32;
@@ -193,7 +214,7 @@ impl CameraController {
         }
     }
 
-    pub fn update_camera(&self, camera: &mut Camera, dt: f32, data: &mut realm::RealmData) {
+    pub fn update_camera(&mut self, camera: &mut Camera, dt: f32, data: &mut realm::RealmData) {
         let (yaw_sin, yaw_cos) = camera.yaw.0.sin_cos();
         let forward = Vector3::new(yaw_cos, 0.0, yaw_sin).normalize();
         //为什么这个是右边？？这不是左边吗？？
@@ -218,28 +239,34 @@ impl CameraController {
             camera.position.y -= self.speed * dt;
         };
 
-        update_wf(camera, data);
+        self.update_wf(camera, data);
+    }
+
+    fn update_wf(&mut self, camera: &Camera, data: &mut realm::RealmData) {
+        match dda(camera.direction(), camera.position, data) {
+            Some(new_position) => {
+                data.is_wf_visible = true;
+                data.update_wf_uniform(new_position.0);
+                self.selected_block = Some(new_position.0);
+                self.pre_selected_block = Some(new_position.1);
+            }
+            None => {
+                data.is_wf_visible = false;
+                self.selected_block = None;
+                self.pre_selected_block = None;
+            }
+        }
     }
 }
 
-fn update_wf(camera: &Camera, data: &mut realm::RealmData) {
-    match dda(camera.direction(), camera.position, data) {
-        Some(new_position) => {
-            data.is_wf_visible = true;
-            data.update_wf_uniform(new_position);
-        }
-        None => {
-            data.is_wf_visible = false;
-        }
-    }
-}
-
+//0号为选中方块，1号为选中方块的前一个方块
 fn dda(
     direction: Vector3<f32>,
     origin: Point3<f32>,
     data: &realm::RealmData,
-) -> Option<Point3<i32>> {
-    let mut current_voxel = origin.map(|x| x.floor() as i32);
+) -> Option<(Point3<i32>, Point3<i32>)> {
+    let mut current_block = origin.map(|x| x.floor() as i32);
+    let mut pre_block = current_block;
 
     let step = direction.map(|x| if x > 0.0 { 1 } else { -1 });
 
@@ -250,7 +277,7 @@ fn dda(
         for i in 0..3 {
             let dir_component = direction[i];
             let origin_component = origin[i];
-            let cv_component = current_voxel[i] as f32;
+            let cv_component = current_block[i] as f32;
 
             if dir_component.abs() < ZERO {
                 t_max[i] = f32::INFINITY;
@@ -269,11 +296,6 @@ fn dda(
     };
 
     for _ in 0..data.wf_max_len as u32 {
-        let block = data.get_block(current_voxel.x, current_voxel.y, current_voxel.z);
-        if block.tp != realm::BlockType::Empty {
-            return Some(current_voxel);
-        }
-
         let axis = if t_max.x < t_max.y {
             if t_max.x < t_max.z {
                 0
@@ -288,8 +310,15 @@ fn dda(
             }
         };
 
-        current_voxel[axis] += step[axis];
+        current_block[axis] += step[axis];
         t_max[axis] += t_delta[axis];
+
+        let block = data.get_block(current_block);
+        if block.tp != realm::BlockType::Empty {
+            return Some((current_block, pre_block));
+        }
+
+        pre_block = current_block;
     }
 
     None
@@ -315,7 +344,9 @@ mod tests {
         let mut camera = Camera::new(position, Deg(90.0), Deg(45.0));
         let mut ans = Point3 { x: 0, y: 1, z: 0 };
         assert_eq!(
-            dda(camera.direction(), camera.position, &mut data).unwrap(),
+            dda(camera.direction(), camera.position, &mut data)
+                .unwrap()
+                .0,
             ans
         );
 
@@ -327,7 +358,7 @@ mod tests {
         camera = Camera::new(position, Deg(90.0), Deg(-45.0));
         ans = Point3 { x: 0, y: 0, z: 0 };
         assert_eq!(
-            dda(camera.direction(), camera.position, &data).unwrap(),
+            dda(camera.direction(), camera.position, &data).unwrap().0,
             ans
         );
     }

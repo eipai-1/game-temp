@@ -2,7 +2,7 @@ use crate::egui_tools::EguiRenderer;
 use egui_wgpu::ScreenDescriptor;
 use instant::Instant;
 use pollster::FutureExt;
-use std::{iter, sync::Arc};
+use std::{fmt::format, iter, sync::Arc};
 use util::DeviceExt;
 use wgpu::*;
 use winit::{
@@ -420,8 +420,12 @@ impl State {
                 ))
                 .unwrap();
         }
-        self.camera_controller
-            .process_events(event, &mut self.camera)
+        self.camera_controller.process_events(
+            event,
+            &mut self.camera,
+            &mut self.realm,
+            &self.basic_config.queue,
+        )
     }
 
     fn update(&mut self) {
@@ -560,15 +564,32 @@ impl State {
         {
             self.egui_renderer.begin_frame(window);
 
-            egui::Window::new("Hello world")
+            egui::Window::new("Debug window")
                 .resizable(true)
                 .vscroll(true)
                 .default_open(true)
+                .default_size((200.0, 200.0))
                 .show(self.egui_renderer.context(), |ui| {
                     ui.label(format!("FPS:{}", self.egui_renderer.fps as u32));
                     ui.label(format!("x:{}", self.camera.position.x));
                     ui.label(format!("y:{}", self.camera.position.y));
                     ui.label(format!("z:{}", self.camera.position.z));
+
+                    if let Some(selected_block) = self.camera_controller.selected_block {
+                        ui.label(format!(
+                            "selected block:({},{},{}):({:?})",
+                            selected_block.x,
+                            selected_block.y,
+                            selected_block.z,
+                            self.realm.data.get_block(selected_block).tp
+                        ));
+                    }
+                    if let Some(pre_selected_block) = self.camera_controller.pre_selected_block {
+                        ui.label(format!(
+                            "pre_selected block:({},{},{})",
+                            pre_selected_block.x, pre_selected_block.y, pre_selected_block.z
+                        ));
+                    }
 
                     if ui.button("start benchmark").clicked() {
                         self.benchmark.start(&mut self.camera);
@@ -620,7 +641,7 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = WindowAttributes::default()
             .with_title("game-temp")
-            .with_inner_size(PhysicalSize::new(1920, 1080));
+            .with_inner_size(PhysicalSize::new(1200, 800));
         let window = event_loop.create_window(window_attributes).unwrap();
 
         //异步函数这里不是很懂

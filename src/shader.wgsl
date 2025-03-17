@@ -57,6 +57,7 @@ var t_diffuse: texture_2d_array<f32>;
 @group(1) @binding(1)
 var s_diffuse: sampler;
 
+// 为了符合步长要求 使用结构体
 @group(2) @binding(0)
 var<uniform> block_materials: array<MaterialUniform, 30>;
 

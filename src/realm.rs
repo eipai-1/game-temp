@@ -176,7 +176,7 @@ pub const WIREFRAME_INDCIES: &[u16] = &[
 ];
 
 const CHUNK_SIZE: usize = 2;
-const CHUNK_HEIGHT: usize = 4;
+const CHUNK_HEIGHT: usize = 5;
 
 const WORLD_FILE_DIR: &str = "./worlds";
 
@@ -408,7 +408,7 @@ impl Chunk {
         return self.data.blocks[x * CHUNK_SIZE * CHUNK_HEIGHT + y * CHUNK_SIZE + z];
     }
 
-    fn set_block(&mut self, x: usize, y: usize, z: usize, block: Block) {
+    pub fn set_block(&mut self, x: usize, y: usize, z: usize, block: Block) {
         self.data.blocks[x * CHUNK_SIZE * CHUNK_HEIGHT + y * CHUNK_SIZE + z] = block;
     }
 
@@ -576,7 +576,8 @@ impl RealmData {
         //init chunk
         Self::load_all_chunk(chunk_rad as i32, center_chunk_pos, &mut chunk_map, name);
 
-        println!("chunk_map:{}", chunk_map.len());
+        println!("chunk_map.len():{}", chunk_map.len());
+        Self::debug_print_chunk_map(&chunk_map);
 
         Self::init_instance(&mut instance, &chunk_map, chunk_rad);
 
@@ -593,8 +594,11 @@ impl RealmData {
         }
     }
 
-    pub fn get_block(&self, mut x: i32, y: i32, mut z: i32) -> Block {
-        let coord = get_chunk_coord(x as f32, z as f32);
+    pub fn get_block(&self, coord: Point3<i32>) -> Block {
+        let mut x = coord.x;
+        let y = coord.y;
+        let mut z = coord.z;
+        let coord = get_chunk_coord(x, z);
 
         //不在区块内！返回空
         if !self.chunk_map.contains_key(&coord) {
@@ -657,6 +661,20 @@ impl RealmData {
         }
     }
 
+    #[allow(unused)]
+    fn debug_print_chunk_map(chunk_map: &HashMap<ChunkCoord, Chunk>) {
+        for (coord, chunk) in chunk_map {
+            println!("Chunk at ({}, {})", coord.x, coord.z);
+            for x in 0..CHUNK_SIZE {
+                for y in 0..CHUNK_HEIGHT {
+                    for z in 0..CHUNK_SIZE {
+                        println!("{},{},{}:{:?}", x, y, z, chunk.get_block(x, y, z).tp);
+                    }
+                }
+            }
+        }
+    }
+
     fn init_instance(
         instance: &mut Vec<Instance>,
         chunk_map: &HashMap<ChunkCoord, Chunk>,
@@ -678,16 +696,16 @@ impl RealmData {
                     for y in 0..CHUNK_HEIGHT {
                         for z in 0..CHUNK_SIZE {
                             let block = chunk.get_block(x, y, z);
-                            if block.tp != BlockType::Empty {
-                                instance.push(Instance {
-                                    position: [
-                                        (chunk_base_x + x as i32) as f32,
-                                        y as f32,
-                                        (chunk_base_z + z as i32) as f32,
-                                    ],
-                                    block_type: block.tp as u32,
-                                });
-                            }
+                            //if block.tp != BlockType::Empty {
+                            instance.push(Instance {
+                                position: [
+                                    (chunk_base_x + x as i32) as f32,
+                                    y as f32,
+                                    (chunk_base_z + z as i32) as f32,
+                                ],
+                                block_type: block.tp as u32,
+                            });
+                            //}
                         }
                     }
                 }
@@ -850,7 +868,7 @@ impl Realm {
                         chunk_map.insert(*chunk_pos, Chunk::new(data));
                     }
 
-                    //不存在生成
+                    //不存在则生成
                     Ok(None) => {
                         let blocks = vec![Block::default(); CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT];
 
@@ -886,7 +904,7 @@ impl Realm {
     }
 
     pub fn update(&mut self, player_pos: &Point3<f32>, device: &Device) {
-        let coord = get_chunk_coord(player_pos.x, player_pos.z);
+        let coord = get_chunk_coord(player_pos.x as i32, player_pos.z as i32);
         match Self::is_adjacent(&self.data.center_chunk_pos, &coord) {
             //Same Chunk
             0 => {}
@@ -1078,6 +1096,59 @@ impl Realm {
     //    }
     //    //}
     //}
+
+    fn set_block(&mut self, coord: Point3<i32>, block: Block) {
+        let chunk_coord = get_chunk_coord(coord.x, coord.z);
+
+        // 检查区块是否存在
+        if let Some(chunk) = self.data.chunk_map.get_mut(&chunk_coord) {
+            let local_coord = get_local_coord(coord);
+
+            // 检查 y 坐标是否在有效范围内
+            if coord.y >= 0 && coord.y < CHUNK_HEIGHT as i32 {
+                chunk.set_block(local_coord.x, local_coord.y, local_coord.z, block);
+
+                // 标记区块为需要更新状态
+                chunk
+                    .is_dirty
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+    }
+
+    pub fn destory_block(&mut self, block_coord: Point3<i32>, queue: &Queue) {
+        let chunk_coord = get_chunk_coord(block_coord.x, block_coord.z);
+        if let Some(chunk) = self.data.chunk_map.get_mut(&chunk_coord) {
+            let local_coord = get_local_coord(block_coord);
+
+            chunk.set_block(local_coord.x, local_coord.y, local_coord.z, BLOCK_EMPTY);
+            queue.write_buffer(
+                &self.render_res.instance_buffer,
+                self.get_offset(&chunk_coord, &block_coord),
+                bytemuck::bytes_of(&Instance {
+                    position: [
+                        block_coord.x as f32,
+                        block_coord.y as f32,
+                        block_coord.z as f32,
+                    ],
+                    block_type: BlockType::Empty as u32,
+                }),
+            );
+        }
+    }
+
+    fn get_offset(&self, chunk_coord: &ChunkCoord, block_coord: &Point3<i32>) -> u64 {
+        let size = CHUNK_SIZE as i32;
+        let height = CHUNK_HEIGHT as i32;
+        ((chunk_coord.x - (self.data.center_chunk_pos.x - self.data.chunk_rad))
+            * (self.data.chunk_rad * 2 + 1)
+            + (chunk_coord.z - (self.data.center_chunk_pos.z - self.data.chunk_rad))
+                * (size * size * height)
+            + block_coord.x * size * height
+            + block_coord.y * height
+            + block_coord.z) as u64
+            * size_of::<Instance>() as u64
+    }
 }
 
 fn generate_wf_vertices() -> Vec<WireframeVertex> {
@@ -1177,10 +1248,17 @@ fn generate_wf_vertices() -> Vec<WireframeVertex> {
 }
 
 //x，z是实际坐标
-pub fn get_chunk_coord(x: f32, z: f32) -> ChunkCoord {
-    let chunk_x = (x / CHUNK_SIZE as f32).floor() as i32;
-    let chunk_z = (z / CHUNK_SIZE as f32).floor() as i32;
+pub fn get_chunk_coord(x: i32, z: i32) -> ChunkCoord {
+    let chunk_x = x / CHUNK_SIZE as i32;
+    let chunk_z = z / CHUNK_SIZE as i32;
     ChunkCoord::new(chunk_x, chunk_z)
+}
+
+pub fn get_local_coord(coord: Point3<i32>) -> Point3<usize> {
+    let chunk_size = CHUNK_SIZE as i32;
+    let local_x = coord.x.rem_euclid(chunk_size) as usize;
+    let local_z = coord.z.rem_euclid(chunk_size) as usize;
+    Point3::new(local_x, coord.y as usize, local_z)
 }
 
 #[cfg(test)]
