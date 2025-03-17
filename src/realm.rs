@@ -1100,7 +1100,8 @@ impl Realm {
     //    //}
     //}
 
-    fn set_block(&mut self, coord: Point3<i32>, block: Block) {
+    //返回位置是否合法
+    fn set_block(&mut self, coord: Point3<i32>, block: Block) -> bool {
         let chunk_coord = get_chunk_coord(coord.x, coord.z);
 
         // 检查区块是否存在
@@ -1120,26 +1121,29 @@ impl Realm {
                 chunk
                     .is_dirty
                     .store(true, std::sync::atomic::Ordering::Relaxed);
+                return true;
             }
         }
+        false
     }
 
     pub fn place_block(&mut self, block_coord: Point3<i32>, block: Block, queue: &Queue) {
-        self.set_block(block_coord, block);
-        let chunk_coord = get_chunk_coord(block_coord.x, block_coord.z);
-        let block_offset = get_local_coord(block_coord);
-        queue.write_buffer(
-            &self.render_res.instance_buffer,
-            self.get_offset(&chunk_coord, &block_offset),
-            bytemuck::bytes_of(&Instance {
-                position: [
-                    block_coord.x as f32,
-                    block_coord.y as f32,
-                    block_coord.z as f32,
-                ],
-                block_type: block.tp as u32,
-            }),
-        );
+        if self.set_block(block_coord, block) {
+            let chunk_coord = get_chunk_coord(block_coord.x, block_coord.z);
+            let block_offset = get_local_coord(block_coord);
+            queue.write_buffer(
+                &self.render_res.instance_buffer,
+                self.get_offset(&chunk_coord, &block_offset),
+                bytemuck::bytes_of(&Instance {
+                    position: [
+                        block_coord.x as f32,
+                        block_coord.y as f32,
+                        block_coord.z as f32,
+                    ],
+                    block_type: block.tp as u32,
+                }),
+            );
+        }
     }
 
     fn get_offset(&self, chunk_coord: &ChunkCoord, block_offset: &Point3<i32>) -> u64 {
