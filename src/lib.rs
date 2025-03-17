@@ -591,6 +591,10 @@ impl State {
                         ));
                     }
 
+                    if ui.button("print chunk map").clicked() {
+                        realm::RealmData::debug_print_chunk_map(&self.realm.data.chunk_map);
+                    }
+
                     if ui.button("start benchmark").clicked() {
                         self.benchmark.start(&mut self.camera);
                     }

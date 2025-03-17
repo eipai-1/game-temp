@@ -577,7 +577,7 @@ impl RealmData {
         Self::load_all_chunk(chunk_rad as i32, center_chunk_pos, &mut chunk_map, name);
 
         println!("chunk_map.len():{}", chunk_map.len());
-        Self::debug_print_chunk_map(&chunk_map);
+        //Self::debug_print_chunk_map(&chunk_map);
 
         Self::init_instance(&mut instance, &chunk_map, chunk_rad);
 
@@ -609,11 +609,8 @@ impl RealmData {
         x = x.rem_euclid(i32_size);
         z = z.rem_euclid(i32_size);
 
-        //println!("chunk_x:{}, chunk_z:{} ", chunk_x, chunk_z);
+        //println!("chunk_x:{}, chunk_z:{} ", coord.x, coord.z);
         //println!("x={}, y={}, z={}", x, y, z);
-        if x < 0 || z < 0 {
-            panic!("PANIC! x or z less than zero: x={},z={}", x, z);
-        }
 
         //对纵坐标位于区块外的方块，统一检测为虚空
         //区块范围为[0, CHUNK_HEIGHT]
@@ -661,14 +658,20 @@ impl RealmData {
         }
     }
 
-    #[allow(unused)]
-    fn debug_print_chunk_map(chunk_map: &HashMap<ChunkCoord, Chunk>) {
+    //#[allow(unused)]
+    pub fn debug_print_chunk_map(chunk_map: &HashMap<ChunkCoord, Chunk>) {
         for (coord, chunk) in chunk_map {
             println!("Chunk at ({}, {})", coord.x, coord.z);
             for x in 0..CHUNK_SIZE {
                 for y in 0..CHUNK_HEIGHT {
                     for z in 0..CHUNK_SIZE {
-                        println!("{},{},{}:{:?}", x, y, z, chunk.get_block(x, y, z).tp);
+                        println!(
+                            "{},{},{}:{:?}",
+                            x as i32 + coord.x * CHUNK_SIZE as i32,
+                            y as i32,
+                            z as i32 + coord.z * CHUNK_SIZE as i32,
+                            chunk.get_block(x, y, z).tp
+                        );
                     }
                 }
             }
@@ -1249,8 +1252,9 @@ fn generate_wf_vertices() -> Vec<WireframeVertex> {
 
 //x，z是实际坐标
 pub fn get_chunk_coord(x: i32, z: i32) -> ChunkCoord {
-    let chunk_x = x / CHUNK_SIZE as i32;
-    let chunk_z = z / CHUNK_SIZE as i32;
+    //floor 向下取整
+    let chunk_x = (x as f32 / CHUNK_SIZE as f32).floor() as i32;
+    let chunk_z = (z as f32 / CHUNK_SIZE as f32).floor() as i32;
     ChunkCoord::new(chunk_x, chunk_z)
 }
 
@@ -1292,5 +1296,14 @@ mod tests {
 
         assert_eq!(chunk, data.chunk_map.get(&coord).unwrap().data);
         Ok(())
+    }
+
+    #[test]
+    fn test_get_block() {
+        let data = RealmData::new();
+        assert_eq!(
+            data.get_block(Point3::new(-3, 0, -3)).tp,
+            BlockType::UnderStone
+        );
     }
 }

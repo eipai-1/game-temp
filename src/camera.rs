@@ -312,7 +312,6 @@ fn dda(
 
         current_block[axis] += step[axis];
         t_max[axis] += t_delta[axis];
-
         let block = data.get_block(current_block);
         if block.tp != realm::BlockType::Empty {
             return Some((current_block, pre_block));
