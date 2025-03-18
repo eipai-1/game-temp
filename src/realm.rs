@@ -1065,22 +1065,15 @@ impl Realm {
 
     //block_offset是区块内的方块偏移量
     fn get_offset(&self, chunk_coord: &ChunkCoord, block_offset: &Point3<i32>) -> u64 {
-        let size = CHUNK_SIZE as i32;
-        let height = CHUNK_HEIGHT as i32;
-        let instances_per_chunk = size * size * height;
-        let chunk_x_offset = chunk_coord.x - (self.data.center_chunk_pos.x - self.data.chunk_rad);
-        let chunk_z_offset = chunk_coord.z - (self.data.center_chunk_pos.z - self.data.chunk_rad);
-        //区块偏移量 = x轴 + y轴 * 区块边长
-        //总区块偏移量 = 区块偏移量 * 区块实例数
-        let chunk_base_offset =
-            (chunk_x_offset * (self.data.chunk_rad * 2 + 1) + chunk_z_offset) * instances_per_chunk;
+        let chunk_base_offset = self.data.coord_to_offset[chunk_coord] as u64;
 
-        let block_offset =
-            block_offset.x * (size * height) + block_offset.y * size + block_offset.z;
+        let block_offset = (block_offset.x * (CHUNK_SIZE * CHUNK_HEIGHT)
+            + block_offset.y * CHUNK_SIZE
+            + block_offset.z) as u64;
 
         //总方块数 = 区块偏移量 + 区块内偏移量
         //总偏移量 = 总方块数 * 实例大小
-        ((chunk_base_offset + block_offset) as u64) * std::mem::size_of::<Instance>() as u64
+        block_offset * std::mem::size_of::<Instance>() as u64 + chunk_base_offset
     }
 }
 
