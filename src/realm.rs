@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::panic;
 use std::path::Path;
 use std::{collections::HashMap, sync::atomic::AtomicBool};
@@ -334,7 +335,7 @@ impl Instance {
     }
 }
 
-#[derive(Hash, Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Hash, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct ChunkCoord {
     x: i32,
     z: i32,
@@ -482,6 +483,7 @@ pub struct RealmData {
     chunk_rad: i32,
 
     pub name: &'static str,
+    pub coord_to_offset: BTreeMap<ChunkCoord, usize>,
 }
 
 impl RealmData {
@@ -589,7 +591,15 @@ impl RealmData {
         println!("chunk_map.len():{}", chunk_map.len());
         //Self::debug_print_chunk_map(&chunk_map);
 
-        Self::init_instance(&mut instance, &chunk_map, chunk_rad, center_chunk_pos);
+        let mut coord_to_offset: BTreeMap<ChunkCoord, usize> = BTreeMap::new();
+
+        Self::init_instance(
+            &mut instance,
+            &chunk_map,
+            chunk_rad,
+            center_chunk_pos,
+            &mut coord_to_offset,
+        );
 
         Self {
             all_block,
@@ -601,6 +611,7 @@ impl RealmData {
             center_chunk_pos,
             name,
             chunk_rad,
+            coord_to_offset,
         }
     }
 
@@ -694,7 +705,9 @@ impl RealmData {
         chunk_map: &HashMap<ChunkCoord, Chunk>,
         chunk_rad: i32,
         center_chunk_pos: ChunkCoord,
+        coord_to_offset: &mut BTreeMap<ChunkCoord, usize>,
     ) {
+        let mut offset: usize = 0;
         for dx in -chunk_rad..=chunk_rad {
             for dz in -chunk_rad..=chunk_rad {
                 let x = dx + center_chunk_pos.x;
@@ -721,8 +734,12 @@ impl RealmData {
                         }
                     }
                 }
+
+                coord_to_offset.insert(ChunkCoord { x, z }, offset);
+                offset += BLOCK_NUM_PER_CHUNK * size_of::<Instance>();
             }
         }
+        //println!("{:?}", coord_to_offset);
     }
 }
 
@@ -920,18 +937,21 @@ impl Realm {
         queue: &Queue,
     ) {
         let instance = Self::init_chunk(new_chunk_pos, &mut self.data.chunk_map, self.data.name);
+        let v = self.data.coord_to_offset[old_chunk_pos];
+        self.data.coord_to_offset.insert(*new_chunk_pos, v);
+
         queue.write_buffer(
             &self.render_res.instance_buffer,
-            self.get_offset(old_chunk_pos, &Point3::new(0, 0, 0)),
+            self.data.coord_to_offset[new_chunk_pos] as u64,
             bytemuck::cast_slice(&instance),
         );
     }
 
     fn unload_chunk(&mut self, chunk_pos: &ChunkCoord) {
+        self.data.coord_to_offset.remove(chunk_pos);
         self.data.chunk_map.remove(chunk_pos);
     }
 
-    //记得更新center_chunk_pos
     pub fn update(&mut self, player_pos: &Point3<f32>, device: &Device, queue: &Queue) {
         let new_coord = get_chunk_coord(player_pos.x as i32, player_pos.z as i32);
         let dx = new_coord.x - self.data.center_chunk_pos.x;
@@ -963,8 +983,9 @@ impl Realm {
                     self.data.center_chunk_pos.x + x,
                     self.data.center_chunk_pos.z + (self.data.chunk_rad + 1) * z_offset,
                 );
-                self.unload_chunk(&old_chunk_pos);
+                //卸载和加载顺序不能反
                 self.load_chunk(&new_chunk_pos, &old_chunk_pos, queue);
+                self.unload_chunk(&old_chunk_pos);
             }
         }
         if x_offset != 0 {
@@ -977,8 +998,8 @@ impl Realm {
                     self.data.center_chunk_pos.x + (self.data.chunk_rad + 1) * x_offset,
                     self.data.center_chunk_pos.z + z,
                 );
-                self.unload_chunk(&old_chunk_pos);
                 self.load_chunk(&new_chunk_pos, &old_chunk_pos, queue);
+                self.unload_chunk(&old_chunk_pos);
             }
         }
     }
@@ -995,6 +1016,7 @@ impl Realm {
             &self.data.chunk_map,
             self.data.chunk_rad,
             *new_coord,
+            &mut self.data.coord_to_offset,
         );
 
         self.render_res.instance_buffer = RenderResources::init_instance_buffer(device, &self.data);
