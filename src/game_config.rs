@@ -12,6 +12,8 @@ pub struct GameConfig {
     max_fps: u32,
     pub sleeper: spin_sleep::SpinSleeper,
     frame_duration: Duration,
+    pub player_speed: f32,
+    pub is_debug_window_open: bool,
 }
 
 impl GameConfig {
@@ -23,11 +25,15 @@ impl GameConfig {
         if max_fps != 0 {
             frame_duration = Duration::from_secs_f64(1.0 / max_fps as f64);
         }
+        let player_speed = 5.0;
+        let is_debug_window_open = true;
 
         Self {
             max_fps,
             sleeper,
             frame_duration,
+            player_speed,
+            is_debug_window_open,
         }
     }
 

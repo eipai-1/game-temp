@@ -40,6 +40,8 @@ egui-winit = "0.29"
 num-derive = "0.4"
 num-traits = "0.2"
 
+noise = "0.9"
+
 # 读取图像
 [dependencies.image]
 version = "0.24"

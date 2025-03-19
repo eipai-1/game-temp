@@ -4,6 +4,8 @@ use std::path::Path;
 use std::{collections::HashMap, sync::atomic::AtomicBool};
 
 use anyhow::Context;
+use noise::core::perlin;
+use noise::Seedable;
 use num_derive::FromPrimitive;
 use serde::{Deserialize, Serialize};
 use wgpu::{util::DeviceExt, *};
@@ -14,7 +16,7 @@ use cgmath::*;
 
 pub const TEXT_FRAC: f32 = 16.0 / 512.0;
 const WF_SIZE: f32 = 0.01;
-const WF_WIDTH: f32 = 0.02;
+const WF_WIDTH: f32 = 0.04;
 pub const VERTICES: &[Vertex] = &[
     //方块坐标：其中每条边都从原点向每个轴的正方向延伸一格
     //按照正-上-后-下-左-右的顺序
@@ -176,8 +178,8 @@ pub const WIREFRAME_INDCIES: &[u16] = &[
     8,  11, 27, 8,  27, 24,
 ];
 
-const CHUNK_SIZE: i32 = 2;
-const CHUNK_HEIGHT: i32 = 5;
+const CHUNK_SIZE: i32 = 16;
+const CHUNK_HEIGHT: i32 = 256;
 const BLOCK_NUM_PER_CHUNK: usize = (CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT) as usize;
 
 const WORLD_FILE_DIR: &str = "./worlds";
@@ -388,6 +390,7 @@ impl Material {
 #[derive(Debug)]
 pub struct Chunk {
     data: ChunkData,
+    //instance: Vec<Instance>,
     is_dirty: AtomicBool,
 }
 
@@ -484,6 +487,8 @@ pub struct RealmData {
 
     pub name: &'static str,
     pub coord_to_offset: BTreeMap<ChunkCoord, usize>,
+
+    pub seed: u32,
 }
 
 impl RealmData {
@@ -568,7 +573,7 @@ impl RealmData {
             _padding: 0.0,
         };
 
-        let wf_max_len: f32 = 12.0;
+        let wf_max_len: f32 = 6.0;
 
         let is_wf_visible = true;
 
@@ -585,8 +590,16 @@ impl RealmData {
             Vec::with_capacity((chunk_rad * 2 + 1).pow(2) as usize * BLOCK_NUM_PER_CHUNK);
 
         let mut chunk_map: HashMap<ChunkCoord, Chunk> = HashMap::new();
+
+        let seed = 2025318;
         //init chunk
-        Self::load_all_chunk(chunk_rad as i32, center_chunk_pos, &mut chunk_map, name);
+        Self::load_all_chunk(
+            chunk_rad as i32,
+            center_chunk_pos,
+            &mut chunk_map,
+            name,
+            seed,
+        );
 
         println!("chunk_map.len():{}", chunk_map.len());
         //Self::debug_print_chunk_map(&chunk_map);
@@ -612,6 +625,7 @@ impl RealmData {
             name,
             chunk_rad,
             coord_to_offset,
+            seed,
         }
     }
 
@@ -658,13 +672,14 @@ impl RealmData {
         center_chunk_pos: ChunkCoord,
         chunk_map: &mut HashMap<ChunkCoord, Chunk>,
         world_dir: &str,
+        seed: u32,
     ) {
         for relative_x in -chunk_rad..=chunk_rad {
             for relative_z in -chunk_rad..=chunk_rad {
                 let x = center_chunk_pos.x + relative_x;
                 let z = center_chunk_pos.z + relative_z;
                 let coord = ChunkCoord::new(x, z);
-                Realm::init_chunk(&coord, chunk_map, world_dir);
+                Realm::init_chunk(&coord, chunk_map, world_dir, seed);
             }
         }
     }
@@ -860,11 +875,79 @@ impl Realm {
         Self { data, render_res }
     }
 
+    fn generate_terrian(
+        chunk_map: &mut HashMap<ChunkCoord, Chunk>,
+        chunk_coord: &ChunkCoord,
+        instance: &mut Vec<Instance>,
+        seed: u32,
+    ) {
+        use noise::{NoiseFn, Perlin};
+
+        let perlin = Perlin::new(seed);
+
+        let blocks = vec![BLOCK_EMPTY; BLOCK_NUM_PER_CHUNK];
+        let mut chunk = Chunk::new(ChunkData { blocks });
+
+        for x in 0..CHUNK_SIZE {
+            for z in 0..CHUNK_SIZE {
+                let absolute_x = x + chunk_coord.x * CHUNK_SIZE;
+                let absolute_z = z + chunk_coord.z * CHUNK_SIZE;
+                //get返回值为[-1, 1]
+                let height = (perlin.get([absolute_x as f64 / 16.0, absolute_z as f64 / 16.0])
+                    * 8.0) as i32
+                    + 32;
+                for y in 0..height {
+                    let block = if y == height - 1 {
+                        Block::new(BlockType::Grass)
+                    } else if y > height - 5 {
+                        Block::new(BlockType::Dirt)
+                    } else {
+                        Block::new(BlockType::Stone)
+                    };
+                    chunk.set_block(x, y, z, block);
+                }
+                chunk.set_block(x, 0, z, Block::new(BlockType::UnderStone));
+            }
+        }
+
+        for x in 0..CHUNK_SIZE {
+            for y in 0..CHUNK_HEIGHT {
+                for z in 0..CHUNK_SIZE {
+                    let block = chunk.get_block(x, y, z);
+                    //注意绝对坐标
+                    instance.push(Instance {
+                        position: [
+                            (x + chunk_coord.x * CHUNK_SIZE) as f32,
+                            y as f32,
+                            (z + chunk_coord.z * CHUNK_SIZE) as f32,
+                        ],
+                        block_type: block.tp as u32,
+                    });
+                }
+            }
+        }
+
+        chunk_map.insert(*chunk_coord, chunk);
+    }
+
+    pub fn get_first_none_empty_block(&self, x: f32, z: f32) -> i32 {
+        let mut pos = Point3::new(x as i32, 0, z as i32);
+
+        for y in 0..CHUNK_HEIGHT {
+            if self.data.get_block(pos) == BLOCK_EMPTY {
+                return y + 1;
+            }
+            pos.y += 1;
+        }
+        return 90;
+    }
+
     //区块初始化
     fn init_chunk(
         chunk_pos: &ChunkCoord,
         chunk_map: &mut HashMap<ChunkCoord, Chunk>,
         world_dir: &str,
+        seed: u32,
     ) -> Vec<Instance> {
         let mut instance: Vec<Instance> = Vec::with_capacity(BLOCK_NUM_PER_CHUNK);
 
@@ -885,38 +968,7 @@ impl Realm {
 
                     //不存在则生成
                     Ok(None) => {
-                        let blocks = vec![
-                            Block::default();
-                            (CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT) as usize
-                        ];
-
-                        let chunk_data = ChunkData { blocks };
-                        let mut chunk = Chunk::new(chunk_data);
-
-                        for x in 0..CHUNK_SIZE {
-                            for y in 0..CHUNK_HEIGHT {
-                                for z in 0..CHUNK_SIZE {
-                                    if y == 3 {
-                                        chunk.set_block(x, y, z, Block::new(BlockType::Grass));
-                                    } else if y == 2 {
-                                        chunk.set_block(x, y, z, Block::new(BlockType::Dirt));
-                                    } else if y == 1 {
-                                        chunk.set_block(x, y, z, Block::new(BlockType::Stone));
-                                    } else if y == 0 {
-                                        chunk.set_block(x, y, z, Block::new(BlockType::UnderStone));
-                                    }
-                                    instance.push(Instance {
-                                        position: [
-                                            (x + chunk_pos.x * CHUNK_SIZE) as f32,
-                                            y as f32,
-                                            (z + chunk_pos.z * CHUNK_SIZE) as f32,
-                                        ],
-                                        block_type: chunk.get_block(x, y, z).tp as u32,
-                                    });
-                                }
-                            }
-                        }
-                        chunk_map.insert(*chunk_pos, chunk);
+                        Self::generate_terrian(chunk_map, chunk_pos, &mut instance, seed);
                     }
                     //读取错误
                     Err(e) => {
@@ -936,7 +988,12 @@ impl Realm {
         old_chunk_pos: &ChunkCoord,
         queue: &Queue,
     ) {
-        let instance = Self::init_chunk(new_chunk_pos, &mut self.data.chunk_map, self.data.name);
+        let instance = Self::init_chunk(
+            new_chunk_pos,
+            &mut self.data.chunk_map,
+            self.data.name,
+            self.data.seed,
+        );
         let v = self.data.coord_to_offset[old_chunk_pos];
         self.data.coord_to_offset.insert(*new_chunk_pos, v);
 
@@ -960,7 +1017,7 @@ impl Realm {
         if dx == 0 && dz == 0 {
             return;
         }
-
+        println!("chunk updated");
         if dx >= -1 && dx <= 1 && dz >= -1 && dz <= 1 {
             self.update_helper(dx, dz, queue);
         } else {
@@ -1010,6 +1067,7 @@ impl Realm {
             *new_coord,
             &mut self.data.chunk_map,
             self.data.name,
+            self.data.seed,
         );
         RealmData::init_instance(
             &mut self.data.instance,

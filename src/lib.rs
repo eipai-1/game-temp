@@ -90,8 +90,14 @@ impl State {
 
         let realm = realm::Realm::new(&basic_config.device);
 
+        let game_config = game_config::GameConfig::new();
+
         //创建摄像机
-        let camera = camera::Camera::new((1.0, 8.0, 1.0), cgmath::Deg(90.0), cgmath::Deg(-45.0));
+        let camera = camera::Camera::new(
+            (1.0, realm.get_first_none_empty_block(1.0, 1.0) as f32, 1.0),
+            cgmath::Deg(90.0),
+            cgmath::Deg(-45.0),
+        );
         let projection = camera::Projection::new(
             basic_config.config.width,
             basic_config.config.height,
@@ -158,7 +164,7 @@ impl State {
             });
 
         let camera_controller = camera::CameraController::new(
-            2.0,
+            game_config.player_speed,
             basic_config.config.width / 2,
             basic_config.config.height / 2,
         );
@@ -345,8 +351,6 @@ impl State {
                 });
         //线框创建完成
 
-        let game_config = game_config::GameConfig::new();
-
         let dt: f64 = 0.001;
         let last_render_time = instant::Instant::now();
 
@@ -425,6 +429,7 @@ impl State {
             &mut self.camera,
             &mut self.realm,
             &self.basic_config.queue,
+            &mut self.game_config,
         )
     }
 
@@ -542,93 +547,103 @@ impl State {
                 );
                 render_pass.draw_indexed(0..realm::WIREFRAME_INDCIES.len() as u32, 0, 0..1);
             }
-        }
 
-        let screen_descriptor = ScreenDescriptor {
-            size_in_pixels: [
-                self.basic_config.config.width,
-                self.basic_config.config.height,
-            ],
-            pixels_per_point: self.window.as_ref().scale_factor() as f32 * self.scale_factor,
-        };
+            // 结束当前渲染通道，这里很重要！
+        } // 这里render_pass会被drop，自动结束
 
-        let surface_view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        //let mut encoder =
-        //    self.basic_config
-        //        .device
-        //        .create_command_encoder(&CommandEncoderDescriptor {
-        //            label: Some("temp encoder"),
-        //        });
-
-        let window = self.window.as_ref();
-        {
-            self.egui_renderer.begin_frame(window);
-
-            egui::Window::new("Debug window")
-                .resizable(true)
-                .vscroll(true)
-                .default_open(true)
-                .default_size((200.0, 200.0))
-                .show(self.egui_renderer.context(), |ui| {
-                    ui.label(format!("FPS:{}", self.egui_renderer.fps as u32));
-                    ui.label(format!("x:{}", self.camera.position.x));
-                    ui.label(format!("y:{}", self.camera.position.y));
-                    ui.label(format!("z:{}", self.camera.position.z));
-
-                    if let Some(selected_block) = self.camera_controller.selected_block {
-                        ui.label(format!(
-                            "selected block:({},{},{}):({:?})",
-                            selected_block.x,
-                            selected_block.y,
-                            selected_block.z,
-                            self.realm.data.get_block(selected_block).tp
-                        ));
-                    }
-                    if let Some(pre_selected_block) = self.camera_controller.pre_selected_block {
-                        ui.label(format!(
-                            "pre_selected block:({},{},{})",
-                            pre_selected_block.x, pre_selected_block.y, pre_selected_block.z
-                        ));
-                    }
-
-                    if ui.button("print chunk map num").clicked() {
-                        println!("chunk map num:{}", self.realm.data.chunk_map.len());
-                    }
-
-                    if ui.button("start benchmark").clicked() {
-                        self.benchmark.start(&mut self.camera);
-                    }
-                    ui.separator();
-
-                    if self.benchmark.is_active {
-                        ui.label("Running benchmark");
-                    }
-
-                    if self.benchmark.has_output {
-                        ui.label(format!(
-                            "Benchmark Result: Avg FPS:{:.2}, sample_count:{} ",
-                            self.benchmark.avg_fps, self.benchmark.sample_count
-                        ));
-                    }
-                });
-
-            self.egui_renderer.end_frame_and_draw(
-                &self.basic_config.device,
-                &self.basic_config.queue,
-                &mut encoder,
-                window,
-                &surface_view,
-                screen_descriptor,
-            );
-        }
+        // 现在调用debug_window，此时编码器没有被锁定
+        self.debug_window(&mut encoder, &output);
 
         self.basic_config.queue.submit(iter::once(encoder.finish()));
         output.present();
 
         Ok(())
+    }
+
+    fn debug_window(&mut self, encoder: &mut CommandEncoder, output: &SurfaceTexture) {
+        if self.game_config.is_debug_window_open {
+            let screen_descriptor = ScreenDescriptor {
+                size_in_pixels: [
+                    self.basic_config.config.width,
+                    self.basic_config.config.height,
+                ],
+                pixels_per_point: self.window.as_ref().scale_factor() as f32 * self.scale_factor,
+            };
+
+            let surface_view = output
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+
+            //let mut encoder =
+            //    self.basic_config
+            //        .device
+            //        .create_command_encoder(&CommandEncoderDescriptor {
+            //            label: Some("temp encoder"),
+            //        });
+
+            let window = self.window.as_ref();
+            {
+                self.egui_renderer.begin_frame(window);
+
+                egui::Window::new("Debug window")
+                    .resizable(true)
+                    .vscroll(true)
+                    .default_open(true)
+                    .default_size((200.0, 200.0))
+                    .show(self.egui_renderer.context(), |ui| {
+                        ui.label(format!("FPS:{}", self.egui_renderer.fps as u32));
+                        ui.label(format!("x:{}", self.camera.position.x));
+                        ui.label(format!("y:{}", self.camera.position.y));
+                        ui.label(format!("z:{}", self.camera.position.z));
+
+                        if let Some(selected_block) = self.camera_controller.selected_block {
+                            ui.label(format!(
+                                "selected block:({},{},{}):({:?})",
+                                selected_block.x,
+                                selected_block.y,
+                                selected_block.z,
+                                self.realm.data.get_block(selected_block).tp
+                            ));
+                        }
+                        if let Some(pre_selected_block) = self.camera_controller.pre_selected_block
+                        {
+                            ui.label(format!(
+                                "pre_selected block:({},{},{})",
+                                pre_selected_block.x, pre_selected_block.y, pre_selected_block.z
+                            ));
+                        }
+
+                        if ui.button("print chunk map num").clicked() {
+                            println!("chunk map num:{}", self.realm.data.chunk_map.len());
+                        }
+
+                        if ui.button("start benchmark").clicked() {
+                            self.benchmark.start(&mut self.camera);
+                        }
+                        ui.separator();
+
+                        if self.benchmark.is_active {
+                            ui.label("Running benchmark");
+                        }
+
+                        if self.benchmark.has_output {
+                            ui.label(format!(
+                                "Benchmark Result: Avg FPS:{:.2}, sample_count:{} ",
+                                self.benchmark.avg_fps, self.benchmark.sample_count
+                            ));
+                        }
+                    });
+
+                self.egui_renderer.end_frame_and_draw(
+                    &self.basic_config.device,
+                    &self.basic_config.queue,
+                    encoder,
+                    window,
+                    &surface_view,
+                    screen_descriptor,
+                );
+            }
+        }
     }
 }
 

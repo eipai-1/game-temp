@@ -6,7 +6,7 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
 };
 
-use crate::realm;
+use crate::{game_config, realm};
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.0001;
 
@@ -132,6 +132,7 @@ impl CameraController {
         camera: &mut Camera,
         realm: &mut realm::Realm,
         queue: &wgpu::Queue,
+        game_config: &mut game_config::GameConfig,
     ) -> bool {
         match event {
             WindowEvent::KeyboardInput {
@@ -173,6 +174,12 @@ impl CameraController {
                     KeyCode::KeyE => {
                         if is_pressed {
                             self.is_fov = !self.is_fov;
+                        }
+                        true
+                    }
+                    KeyCode::F5 => {
+                        if is_pressed {
+                            game_config.is_debug_window_open = !game_config.is_debug_window_open;
                         }
                         true
                     }
