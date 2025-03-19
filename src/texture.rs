@@ -18,7 +18,6 @@ impl Texture {
         file_path: &str,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        data: &realm::RealmData,
     ) -> Result<Self> {
         let dimention: (u32, u32) = (16, 16);
 

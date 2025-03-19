@@ -172,13 +172,9 @@ impl State {
 
         //开始创建diffuse_bind_group
         //let diffuse_bytes = include_bytes!("../res/tile_map.png");
-        let diffuse_texture = texture::Texture::load_blocks(
-            "res/texture",
-            &basic_config.device,
-            &basic_config.queue,
-            &realm.data,
-        )
-        .unwrap();
+        let diffuse_texture =
+            texture::Texture::load_blocks("res/texture", &basic_config.device, &basic_config.queue)
+                .unwrap();
 
         let texture_bind_group_layout =
             basic_config
@@ -524,16 +520,19 @@ impl State {
             //    );
             //}
             render_pass.set_vertex_buffer(0, self.realm.render_res.block_vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.realm.render_res.instance_buffer.slice(..));
             render_pass.set_index_buffer(
                 self.realm.render_res.block_index_buffer.slice(..),
                 IndexFormat::Uint16,
             );
-            render_pass.draw_indexed(
-                0..realm::INDICES.len() as _,
-                0,
-                0..self.realm.data.instance.len() as _,
-            );
+            for (coord, chunk) in self.realm.data.chunk_map.iter() {
+                render_pass
+                    .set_vertex_buffer(1, self.realm.render_res.instance_buffers[&coord].slice(..));
+                render_pass.draw_indexed(
+                    0..realm::INDICES.len() as _,
+                    0,
+                    0..chunk.offset_top as u32,
+                );
+            }
 
             //绘制线框
             if self.realm.data.is_wf_visible {
