@@ -175,8 +175,8 @@ pub const WIREFRAME_INDCIES: &[u16] = &[
     8,  11, 27, 8,  27, 24,
 ];
 
-const CHUNK_SIZE: i32 = 4;
-const CHUNK_HEIGHT: i32 = 5;
+const CHUNK_SIZE: i32 = 16;
+const CHUNK_HEIGHT: i32 = 256;
 const BLOCK_NUM_PER_CHUNK: usize = (CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT) as usize;
 
 const WORLD_FILE_DIR: &str = "./worlds";
@@ -928,6 +928,7 @@ impl Realm {
         chunk_map.insert(*chunk_coord, chunk);
     }
 
+    #[allow(unused)]
     fn generate_terrian_test(
         chunk_map: &mut HashMap<ChunkCoord, Chunk>,
         chunk_coord: &ChunkCoord,
@@ -987,7 +988,7 @@ impl Realm {
 
                     //不存在则生成
                     Ok(None) => {
-                        Self::generate_terrian_test(chunk_map, chunk_pos, seed);
+                        Self::generate_terrian(chunk_map, chunk_pos, seed);
                     }
                     //读取错误
                     Err(e) => {
@@ -1269,10 +1270,10 @@ impl Realm {
             [RealmData::relative_to_index(block_offset.x, block_offset.y, block_offset.z)] = offset;
         chunk.instance[offset as usize] = instance;
 
-        println!(
-            "insert instance{:?} to {:?},{:?}",
-            instance, abs_coord, offset
-        );
+        //println!(
+        //    "insert instance{:?} to {:?},{:?}",
+        //    instance, abs_coord, offset
+        //);
         queue.write_buffer(
             &self.render_res.instance_buffers[&chunk_coord],
             (offset) * std::mem::size_of::<Instance>() as u64,
