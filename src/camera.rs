@@ -200,26 +200,32 @@ impl CameraController {
                 ..
             } => {
                 //println!("left mouse button pressed");
-                if let Some(selected_block) = self.selected_block {
-                    realm.place_block(selected_block, realm::BLOCK_EMPTY, queue);
+                if self.is_fov {
+                    if let Some(selected_block) = self.selected_block {
+                        realm.place_block(selected_block, realm::BLOCK_EMPTY, queue);
+                        return true;
+                    }
                 }
-                true
+                false
             }
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 button: MouseButton::Right,
                 ..
             } => {
-                if let Some(pre_selected_block) = self.pre_selected_block {
-                    realm.place_block(
-                        pre_selected_block,
-                        realm::Block {
-                            tp: realm::BlockType::Stone,
-                        },
-                        queue,
-                    );
+                if self.is_fov {
+                    if let Some(pre_selected_block) = self.pre_selected_block {
+                        realm.place_block(
+                            pre_selected_block,
+                            realm::Block {
+                                tp: realm::BlockType::Stone,
+                            },
+                            queue,
+                        );
+                        return true;
+                    }
                 }
-                true
+                false
             }
             WindowEvent::CursorMoved { position, .. } if self.is_fov => {
                 self.dx = (self.center_x as f64 - position.x) as f32;

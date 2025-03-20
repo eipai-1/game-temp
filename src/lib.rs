@@ -2,6 +2,7 @@ use crate::egui_tools::EguiRenderer;
 use egui_wgpu::ScreenDescriptor;
 use instant::Instant;
 use pollster::FutureExt;
+use realm::ChunkCoord;
 use std::{iter, sync::Arc};
 use util::DeviceExt;
 use wgpu::*;
@@ -438,11 +439,8 @@ impl State {
         self.camera_uniform
             .update_view_proj(&self.camera, &self.projection);
 
-        self.realm.update(
-            &self.camera.position,
-            &self.basic_config.device,
-            &self.basic_config.queue,
-        );
+        self.realm
+            .update(&self.camera.position, &self.basic_config.device);
 
         self.basic_config.queue.write_buffer(
             &self.camera_buffer,
@@ -591,9 +589,11 @@ impl State {
                     .default_size((200.0, 200.0))
                     .show(self.egui_renderer.context(), |ui| {
                         ui.label(format!("FPS:{}", self.egui_renderer.fps as u32));
-                        ui.label(format!("x:{}", self.camera.position.x));
-                        ui.label(format!("y:{}", self.camera.position.y));
-                        ui.label(format!("z:{}", self.camera.position.z));
+                        ui.label(format!(
+                            "xyz:{:.2},{:.2},{:.2}",
+                            self.camera.position.x, self.camera.position.y, self.camera.position.z
+                        ));
+                        ui.label(format!("chunk_map.len:{}", self.realm.data.chunk_map.len()));
 
                         if let Some(selected_block) = self.camera_controller.selected_block {
                             ui.label(format!(
@@ -612,8 +612,18 @@ impl State {
                             ));
                         }
 
-                        if ui.button("print chunk map num").clicked() {
-                            println!("chunk map num:{}", self.realm.data.chunk_map.len());
+                        if ui.button("debug print").clicked() {
+                            self.realm.debug_print();
+                        }
+
+                        if self.game_config.get_max_fps() == 0 {
+                            if ui.button("set max FPS to 60").clicked() {
+                                self.game_config.set_max_fps(60);
+                            }
+                        } else {
+                            if ui.button("set max FPS unlimited").clicked() {
+                                self.game_config.set_max_fps(0);
+                            }
                         }
 
                         if ui.button("start benchmark").clicked() {
