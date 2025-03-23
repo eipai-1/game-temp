@@ -26,40 +26,22 @@ impl Control {
     }
 
     pub fn event_walk_forward(&mut self, is_pressed: bool, player: &mut PlayerEntity) -> bool {
-        if is_pressed {
-            player.entity.velocity -= self.forward * player.camera_controller.speed;
-            player.entity.velocity += player.camera.forward * player.camera_controller.speed;
-            self.forward = player.camera.forward;
-        } else {
-            player.entity.velocity -= player.camera.forward * player.camera_controller.speed;
-        }
+        player.camera_controller.is_forward_pressed = is_pressed;
         true
     }
 
     pub fn event_walk_left(&mut self, is_pressed: bool, player: &mut PlayerEntity) -> bool {
-        if is_pressed {
-            player.entity.velocity -= player.camera.right * player.camera_controller.speed;
-        } else {
-            player.entity.velocity += player.camera.right * player.camera_controller.speed;
-        }
+        player.camera_controller.is_left_pressed = is_pressed;
         true
     }
 
     pub fn event_walk_backward(&mut self, is_pressed: bool, player: &mut PlayerEntity) -> bool {
-        if is_pressed {
-            player.entity.velocity -= player.camera.forward * player.camera_controller.speed;
-        } else {
-            player.entity.velocity += player.camera.forward * player.camera_controller.speed;
-        }
+        player.camera_controller.is_backward_pressed = is_pressed;
         true
     }
 
     pub fn event_walk_right(&mut self, is_pressed: bool, player: &mut PlayerEntity) -> bool {
-        if is_pressed {
-            player.entity.velocity += player.camera.right * player.camera_controller.speed;
-        } else {
-            player.entity.velocity -= player.camera.right * player.camera_controller.speed;
-        }
+        player.camera_controller.is_right_pressed = is_pressed;
         true
     }
 
@@ -170,7 +152,7 @@ impl Control {
                 }
                 player.camera.forward = player.camera.direction();
                 player.camera.right = player.camera.forward.cross(Vector3::unit_y());
-                self.is_rotating_view = true;
+                player.is_move_speed_set = false;
                 true
             }
             _ => false,

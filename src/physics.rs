@@ -45,6 +45,8 @@ pub struct PlayerEntity {
     pub camera_bind_group_layout: BindGroupLayout,
     pub camera_controller: CameraController,
     pub is_collided: bool,
+    pub is_move_speed_set: bool,
+    pub move_velocity: Vector3<f32>,
 }
 
 impl PlayerEntity {
@@ -140,6 +142,8 @@ impl PlayerEntity {
             camera_bind_group_layout,
             camera_controller,
             is_collided,
+            is_move_speed_set: false,
+            move_velocity: Vector3::new(0.0, 0.0, 0.0),
         }
     }
 
@@ -164,6 +168,26 @@ impl PlayerEntity {
     }
 
     pub fn update(&mut self, dt: f32, data: &mut realm::RealmData) {
+        //if self.is_move_speed_set {
+        //每一帧都重新建立一个移动速度
+        self.entity.velocity -= self.move_velocity;
+        let mut move_velocity: Vector3<f32> = Vector3::new(0.0, 0.0, 0.0);
+        if self.camera_controller.is_forward_pressed {
+            move_velocity += self.camera.forward * self.camera_controller.speed;
+        }
+        if self.camera_controller.is_backward_pressed {
+            move_velocity -= self.camera.forward * self.camera_controller.speed;
+        }
+        if self.camera_controller.is_left_pressed {
+            move_velocity -= self.camera.right * self.camera_controller.speed;
+        }
+        if self.camera_controller.is_right_pressed {
+            move_velocity += self.camera.right * self.camera_controller.speed;
+        }
+        self.move_velocity = move_velocity;
+        self.entity.velocity += self.move_velocity;
+        //self.is_move_speed_set = true;
+        //}
         self.entity.update(dt, data);
         self.camera.position = self.entity.position;
         //self.camera.position.y += 1.8;
