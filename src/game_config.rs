@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+pub const ZERO: f32 = 1e-6;
 /*
 GameConfig
 适用场景：存放游戏启动参数、核心逻辑配置（如世界大小、物理参数等）。
@@ -20,7 +21,7 @@ impl GameConfig {
     pub fn new() -> Self {
         let sleeper = spin_sleep::SpinSleeper::default();
 
-        let max_fps = 60;
+        let max_fps = 30;
         let mut frame_duration = Duration::from_secs_f32(1.0);
         if max_fps != 0 {
             frame_duration = Duration::from_secs_f64(1.0 / max_fps as f64);

@@ -1,4 +1,6 @@
 // --
+use crate::{game_config::ZERO, physics};
+
 use cgmath::*;
 use std::f32::consts::FRAC_PI_2;
 use winit::{
@@ -8,15 +10,36 @@ use winit::{
 
 use crate::{game_config, realm};
 
-const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.0001;
+pub const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.0001;
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct CameraUniform {
+    view_proj: [[f32; 4]; 4],
+    view_position: [f32; 4],
+}
 
-pub const ZERO: f32 = 1e-6;
+impl CameraUniform {
+    pub fn new() -> Self {
+        use cgmath::SquareMatrix;
+        Self {
+            view_position: [0.0; 4],
+            view_proj: cgmath::Matrix4::identity().into(),
+        }
+    }
+
+    pub fn update_view_proj(&mut self, camera: &Camera, projection: &Projection) {
+        self.view_position = camera.position.to_homogeneous().into();
+        self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into();
+    }
+}
 
 #[derive(Debug)]
 pub struct Camera {
     pub position: Point3<f32>,
-    yaw: Rad<f32>,
-    pitch: Rad<f32>,
+    pub yaw: Rad<f32>,
+    pub pitch: Rad<f32>,
+    pub forward: Vector3<f32>,
+    pub right: Vector3<f32>,
 }
 
 impl Camera {
@@ -25,10 +48,22 @@ impl Camera {
         yaw: Y,
         pitch: P,
     ) -> Self {
+        let yaw = yaw.into();
+        let pitch = pitch.into();
+        let forward = Vector3::new(
+            yaw.0.cos() * pitch.0.cos(),
+            pitch.0.sin(),
+            yaw.0.sin() * pitch.0.cos(),
+        )
+        .normalize();
+        let right = Vector3::new(-forward.z, 0.0, forward.x).normalize();
+
         Self {
             position: position.into(),
-            yaw: yaw.into(),
-            pitch: pitch.into(),
+            yaw,
+            pitch,
+            forward,
+            right,
         }
     }
 
@@ -101,8 +136,8 @@ pub struct CameraController {
     pub fov_sensitivity: f32,
     pub selected_block: Option<Point3<i32>>,
     pub pre_selected_block: Option<Point3<i32>>,
-    dx: f32,
-    dy: f32,
+    pub dx: f32,
+    pub dy: f32,
 }
 
 impl CameraController {
@@ -125,171 +160,10 @@ impl CameraController {
             pre_selected_block: None,
         }
     }
-
-    pub fn process_events(
-        &mut self,
-        event: &WindowEvent,
-        camera: &mut Camera,
-        realm: &mut realm::Realm,
-        queue: &wgpu::Queue,
-        game_config: &mut game_config::GameConfig,
-    ) -> bool {
-        match event {
-            WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        state,
-                        physical_key: PhysicalKey::Code(keycode),
-                        repeat: false,
-                        ..
-                    },
-                ..
-            } => {
-                let is_pressed = *state == ElementState::Pressed;
-                match keycode {
-                    KeyCode::KeyW | KeyCode::ArrowUp => {
-                        self.is_forward_pressed = is_pressed;
-                        true
-                    }
-                    KeyCode::KeyA | KeyCode::ArrowLeft => {
-                        self.is_left_pressed = is_pressed;
-                        true
-                    }
-                    KeyCode::KeyS | KeyCode::ArrowDown => {
-                        self.is_backward_pressed = is_pressed;
-                        true
-                    }
-                    KeyCode::KeyD | KeyCode::ArrowRight => {
-                        self.is_right_pressed = is_pressed;
-                        true
-                    }
-                    KeyCode::ShiftLeft => {
-                        self.is_down_pressed = is_pressed;
-                        true
-                    }
-                    KeyCode::Space => {
-                        self.is_up_pressed = is_pressed;
-                        true
-                    }
-                    KeyCode::KeyE => {
-                        if is_pressed {
-                            self.is_fov = !self.is_fov;
-                        }
-                        true
-                    }
-                    KeyCode::F5 => {
-                        if is_pressed {
-                            game_config.is_debug_window_open = !game_config.is_debug_window_open;
-                        }
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            WindowEvent::Focused(true) => {
-                self.is_fov = true;
-                true
-            }
-            WindowEvent::Focused(false) => {
-                self.is_fov = false;
-                true
-            }
-            WindowEvent::MouseInput {
-                state: ElementState::Pressed,
-                button: MouseButton::Left,
-                ..
-            } => {
-                //println!("left mouse button pressed");
-                if self.is_fov {
-                    if let Some(selected_block) = self.selected_block {
-                        realm.place_block(selected_block, realm::BLOCK_EMPTY, queue);
-                        return true;
-                    }
-                }
-                false
-            }
-            WindowEvent::MouseInput {
-                state: ElementState::Pressed,
-                button: MouseButton::Right,
-                ..
-            } => {
-                if self.is_fov {
-                    if let Some(pre_selected_block) = self.pre_selected_block {
-                        realm.place_block(
-                            pre_selected_block,
-                            realm::Block {
-                                tp: realm::BlockType::Stone,
-                            },
-                            queue,
-                        );
-                        return true;
-                    }
-                }
-                false
-            }
-            WindowEvent::CursorMoved { position, .. } if self.is_fov => {
-                self.dx = (self.center_x as f64 - position.x) as f32;
-                self.dy = (self.center_y as f64 - position.y) as f32;
-                camera.yaw -= Rad(self.dx) * self.fov_sensitivity;
-                camera.pitch += Rad(self.dy) * self.fov_sensitivity;
-                if camera.pitch < -Rad(SAFE_FRAC_PI_2) {
-                    camera.pitch = -Rad(SAFE_FRAC_PI_2);
-                } else if camera.pitch > Rad(SAFE_FRAC_PI_2) {
-                    camera.pitch = Rad(SAFE_FRAC_PI_2);
-                }
-                true
-            }
-            _ => false,
-        }
-    }
-
-    pub fn update_camera(&mut self, camera: &mut Camera, dt: f32, data: &mut realm::RealmData) {
-        let (yaw_sin, yaw_cos) = camera.yaw.0.sin_cos();
-        let forward = Vector3::new(yaw_cos, 0.0, yaw_sin).normalize();
-        //为什么这个是右边？？这不是左边吗？？
-        let right = Vector3::new(-yaw_sin, 0.0, yaw_cos).normalize();
-
-        if self.is_forward_pressed {
-            camera.position += forward * self.speed * dt;
-        }
-        if self.is_backward_pressed {
-            camera.position -= forward * self.speed * dt;
-        }
-        if self.is_left_pressed {
-            camera.position -= right * self.speed * dt;
-        }
-        if self.is_right_pressed {
-            camera.position += right * self.speed * dt;
-        }
-        if self.is_up_pressed {
-            camera.position.y += self.speed * dt;
-        }
-        if self.is_down_pressed {
-            camera.position.y -= self.speed * dt;
-        };
-
-        self.update_wf(camera, data);
-    }
-
-    fn update_wf(&mut self, camera: &Camera, data: &mut realm::RealmData) {
-        match dda(camera.direction(), camera.position, data) {
-            Some(new_position) => {
-                data.is_wf_visible = true;
-                data.update_wf_uniform(new_position.0);
-                self.selected_block = Some(new_position.0);
-                self.pre_selected_block = Some(new_position.1);
-            }
-            None => {
-                data.is_wf_visible = false;
-                self.selected_block = None;
-                self.pre_selected_block = None;
-            }
-        }
-    }
 }
 
 //0号为选中方块，1号为选中方块的前一个方块
-fn dda(
+pub fn dda(
     direction: Vector3<f32>,
     origin: Point3<f32>,
     data: &realm::RealmData,

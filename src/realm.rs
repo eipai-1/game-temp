@@ -11,8 +11,10 @@ pub const BLOCK_NUM: usize = 5;
 
 use cgmath::*;
 
+use crate::game_config;
+
 pub const TEXT_FRAC: f32 = 16.0 / 512.0;
-const WF_SIZE: f32 = 0.01;
+const WF_SIZE: f32 = 0.001;
 const WF_WIDTH: f32 = 0.04;
 pub const VERTICES: &[Vertex] = &[
     //方块坐标：其中每条边都从原点向每个轴的正方向延伸一格
@@ -205,6 +207,16 @@ pub enum BlockType {
 
     //泥土
     Dirt = 4,
+}
+
+impl BlockType {
+    // 判断方块是否为实体方块
+    pub fn is_solid(&self) -> bool {
+        match self {
+            BlockType::Empty => false,
+            _ => true, // 其他所有方块类型都是实体
+        }
+    }
 }
 
 pub const BLOCK_MATERIALS_NUM: u32 = 5;
@@ -739,9 +751,17 @@ impl RealmData {
         .iter()
         //any()遍历检查是否有ture，否则返回false
         .any(|(nx, ny, nz)| {
-            // 相邻方块为空，则面可见
-            self.get_block(Point3::new(*nx, *ny, *nz)).tp == BlockType::Empty
+            // 相邻方块不是实体，则面可见
+            !self.get_block(Point3::new(*nx, *ny, *nz)).tp.is_solid()
         })
+    }
+
+    pub fn get_block_f32(&self, absolute_coord: Point3<f32>) -> Block {
+        let x = (absolute_coord.x + game_config::ZERO) as i32;
+        let y = (absolute_coord.y + game_config::ZERO) as i32;
+        let z = (absolute_coord.z + game_config::ZERO) as i32;
+
+        return self.get_block(Point3 { x, y, z });
     }
 }
 
@@ -960,7 +980,7 @@ impl Realm {
 
         for y in 0..CHUNK_HEIGHT {
             if self.data.get_block(pos) == BLOCK_EMPTY {
-                return y + 1;
+                return y + 2;
             }
             pos.y += 1;
         }
@@ -988,7 +1008,7 @@ impl Realm {
 
                     //不存在则生成
                     Ok(None) => {
-                        Self::generate_terrian(chunk_map, chunk_pos, seed);
+                        Self::generate_terrian_test(chunk_map, chunk_pos, seed);
                     }
                     //读取错误
                     Err(e) => {

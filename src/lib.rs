@@ -2,9 +2,7 @@ use crate::egui_tools::EguiRenderer;
 use egui_wgpu::ScreenDescriptor;
 use instant::Instant;
 use pollster::FutureExt;
-use realm::ChunkCoord;
 use std::{iter, sync::Arc};
-use util::DeviceExt;
 use wgpu::*;
 use winit::{
     application::ApplicationHandler,
@@ -18,32 +16,12 @@ use winit::{
 mod basic_config;
 mod benchmark;
 pub mod camera;
+mod control;
 mod egui_tools;
 mod game_config;
+mod physics;
 pub mod realm;
 mod texture;
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct CameraUniform {
-    view_proj: [[f32; 4]; 4],
-    view_position: [f32; 4],
-}
-
-impl CameraUniform {
-    fn new() -> Self {
-        use cgmath::SquareMatrix;
-        Self {
-            view_position: [0.0; 4],
-            view_proj: cgmath::Matrix4::identity().into(),
-        }
-    }
-
-    fn update_view_proj(&mut self, camera: &camera::Camera, projection: &camera::Projection) {
-        self.view_position = camera.position.to_homogeneous().into();
-        self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into();
-    }
-}
 
 struct State {
     basic_config: basic_config::BasicConfig,
@@ -52,14 +30,6 @@ struct State {
     //好像没用？
     //diffuse_texture: texture::Texture,
     diffuse_bind_group: BindGroup,
-
-    //摄像机相关
-    camera: camera::Camera,
-    projection: camera::Projection,
-    camera_uniform: CameraUniform,
-    camera_buffer: Buffer,
-    camera_bind_group: BindGroup,
-    camera_controller: camera::CameraController,
 
     dt: f64,
     last_render_time: instant::Instant,
@@ -74,6 +44,9 @@ struct State {
 
     egui_renderer: EguiRenderer,
     scale_factor: f32,
+
+    player: physics::PlayerEntity,
+    control: control::Control,
 }
 
 impl State {
@@ -93,82 +66,8 @@ impl State {
 
         let game_config = game_config::GameConfig::new();
 
-        //创建摄像机
-        let camera = camera::Camera::new(
-            (1.0, realm.get_first_none_empty_block(1.0, 1.0) as f32, 1.0),
-            cgmath::Deg(90.0),
-            cgmath::Deg(-45.0),
-        );
-        let projection = camera::Projection::new(
-            basic_config.config.width,
-            basic_config.config.height,
-            cgmath::Deg(45.0),
-            0.1,
-            100.0,
-        );
-        let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_view_proj(&camera, &projection);
+        let player = physics::PlayerEntity::new(&basic_config, &realm, &game_config);
 
-        let camera_buffer =
-            basic_config
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("First camera buffer"),
-                    contents: bytemuck::cast_slice(&[camera_uniform]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
-
-        let camera_bind_group_layout =
-            basic_config
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("camera bind group layout"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::VERTEX,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: ShaderStages::VERTEX,
-                            ty: BindingType::Buffer {
-                                ty: BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                    ],
-                });
-
-        let camera_bind_group = basic_config
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("camera bind group"),
-                layout: &camera_bind_group_layout,
-                entries: &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: camera_buffer.as_entire_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: realm.render_res.wf_uniform_buffer.as_entire_binding(),
-                    },
-                ],
-            });
-
-        let camera_controller = camera::CameraController::new(
-            game_config.player_speed,
-            basic_config.config.width / 2,
-            basic_config.config.height / 2,
-        );
         //摄像机创建完成
 
         //开始创建diffuse_bind_group
@@ -237,7 +136,7 @@ impl State {
                 .create_pipeline_layout(&PipelineLayoutDescriptor {
                     label: Some("First render pipeline layout"),
                     bind_group_layouts: &[
-                        &camera_bind_group_layout,
+                        &player.camera_bind_group_layout,
                         &texture_bind_group_layout,
                         &realm.render_res.block_materials_bind_group_layout,
                     ],
@@ -362,6 +261,9 @@ impl State {
         );
 
         let scale_factor: f32 = 1.0;
+
+        let control = control::Control::new(&player.camera);
+
         Self {
             basic_config,
             window,
@@ -369,12 +271,7 @@ impl State {
             //diffuse_texture,
             diffuse_bind_group,
 
-            camera,
-            projection,
-            camera_uniform,
-            camera_buffer,
-            camera_bind_group,
-            camera_controller,
+            player,
 
             dt,
             last_render_time,
@@ -389,6 +286,8 @@ impl State {
             benchmark,
             egui_renderer,
             scale_factor,
+
+            control,
         }
     }
 
@@ -400,9 +299,11 @@ impl State {
             self.basic_config
                 .surface
                 .configure(&self.basic_config.device, &self.basic_config.config);
-            self.camera_controller.center_x = new_size.width / 2;
-            self.camera_controller.center_y = new_size.height / 2;
-            self.projection.resize(new_size.width, new_size.height);
+            self.player.camera_controller.center_x = new_size.width / 2;
+            self.player.camera_controller.center_y = new_size.height / 2;
+            self.player
+                .projection
+                .resize(new_size.width, new_size.height);
             self.depth_texture = texture::Texture::create_depth_texture(
                 &self.basic_config.device,
                 &self.basic_config.config,
@@ -412,18 +313,18 @@ impl State {
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
-        if self.camera_controller.is_fov {
+        if self.player.camera_controller.is_fov {
             self.window
                 .as_ref()
                 .set_cursor_position(PhysicalPosition::new(
-                    self.camera_controller.center_x,
-                    self.camera_controller.center_y,
+                    self.player.camera_controller.center_x,
+                    self.player.camera_controller.center_y,
                 ))
                 .unwrap();
         }
-        self.camera_controller.process_events(
+        self.control.process_events(
+            &mut self.player,
             event,
-            &mut self.camera,
             &mut self.realm,
             &self.basic_config.queue,
             &mut self.game_config,
@@ -431,21 +332,15 @@ impl State {
     }
 
     fn update(&mut self) {
-        self.camera_controller.update_camera(
-            &mut self.camera,
-            self.dt as f32,
-            &mut self.realm.data,
-        );
-        self.camera_uniform
-            .update_view_proj(&self.camera, &self.projection);
+        self.player.update(self.dt as f32, &mut self.realm.data);
 
         self.realm
-            .update(&self.camera.position, &self.basic_config.device);
+            .update(&self.player.entity.position, &self.basic_config.device);
 
         self.basic_config.queue.write_buffer(
-            &self.camera_buffer,
+            &self.player.camera_buffer,
             0,
-            bytemuck::cast_slice(&[self.camera_uniform]),
+            bytemuck::cast_slice(&[self.player.camera_uniform]),
         );
         self.basic_config.queue.write_buffer(
             &self.realm.render_res.wf_uniform_buffer,
@@ -495,7 +390,7 @@ impl State {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.player.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(2, &self.realm.render_res.block_materials_bind_group, &[]);
             //for block in self.realm.data.all_block.iter().skip(1) {
@@ -535,7 +430,7 @@ impl State {
             //绘制线框
             if self.realm.data.is_wf_visible {
                 render_pass.set_pipeline(&self.wf_render_pipeline);
-                render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                render_pass.set_bind_group(0, &self.player.camera_bind_group, &[]);
                 render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, self.realm.render_res.wf_vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
@@ -586,16 +481,15 @@ impl State {
                     .resizable(true)
                     .vscroll(true)
                     .default_open(true)
-                    .default_size((200.0, 200.0))
+                    .default_size((200.0, 300.0))
                     .show(self.egui_renderer.context(), |ui| {
                         ui.label(format!("FPS:{}", self.egui_renderer.fps as u32));
-                        ui.label(format!(
-                            "xyz:{:.2},{:.2},{:.2}",
-                            self.camera.position.x, self.camera.position.y, self.camera.position.z
-                        ));
+                        ui.label(format!("x:{}", self.player.entity.position.x));
+                        ui.label(format!("y:{}", self.player.entity.position.y));
+                        ui.label(format!("z:{}", self.player.entity.position.z));
                         ui.label(format!("chunk_map.len:{}", self.realm.data.chunk_map.len()));
 
-                        if let Some(selected_block) = self.camera_controller.selected_block {
+                        if let Some(selected_block) = self.player.camera_controller.selected_block {
                             ui.label(format!(
                                 "selected block:({},{},{}):({:?})",
                                 selected_block.x,
@@ -604,7 +498,8 @@ impl State {
                                 self.realm.data.get_block(selected_block).tp
                             ));
                         }
-                        if let Some(pre_selected_block) = self.camera_controller.pre_selected_block
+                        if let Some(pre_selected_block) =
+                            self.player.camera_controller.pre_selected_block
                         {
                             ui.label(format!(
                                 "pre_selected block:({},{},{})",
@@ -612,9 +507,12 @@ impl State {
                             ));
                         }
 
-                        if ui.button("debug print").clicked() {
-                            self.realm.debug_print();
-                        }
+                        ui.label(format!("is_grounded:{}", self.player.entity.is_grounded));
+                        //ui.label(format!("is_collided:{}", self.player.is_collided));
+                        ui.label(format!("is_testing:{}", self.player.entity.is_testing));
+                        ui.label(format!("velocity:{:?}", self.player.entity.velocity));
+
+                        //if ui.button("debug print").clicked() {}
 
                         if self.game_config.get_max_fps() == 0 {
                             if ui.button("set max FPS to 60").clicked() {
@@ -627,7 +525,7 @@ impl State {
                         }
 
                         if ui.button("start benchmark").clicked() {
-                            self.benchmark.start(&mut self.camera);
+                            self.benchmark.start(&mut self.player.camera);
                         }
                         ui.separator();
 
