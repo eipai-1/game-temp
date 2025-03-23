@@ -172,6 +172,7 @@ impl PlayerEntity {
         //每一帧都重新建立一个移动速度
         self.entity.velocity -= self.move_velocity;
         let mut move_velocity: Vector3<f32> = Vector3::new(0.0, 0.0, 0.0);
+        //println!("camera.forward: {:?}", self.camera.forward);
         if self.camera_controller.is_forward_pressed {
             move_velocity += self.camera.forward * self.camera_controller.speed;
         }
@@ -184,6 +185,7 @@ impl PlayerEntity {
         if self.camera_controller.is_right_pressed {
             move_velocity += self.camera.right * self.camera_controller.speed;
         }
+        move_velocity.y = 0.0;
         self.move_velocity = move_velocity;
         self.entity.velocity += self.move_velocity;
         //self.is_move_speed_set = true;
@@ -285,10 +287,13 @@ impl Entity {
             return;
         }
 
-        //println!("velocity_magnitude:{}", self.velocity.magnitude());
         self.is_testing = true;
 
         let mut displacement = self.velocity * dt;
+
+        println!("velocity: {:?}", self.velocity);
+        println!("start decting at {:?}", self.position);
+        println!("displacement: {:?}", displacement);
 
         let mut temp_position = self.position;
         let mut collision_coord = Point3::new(0, 0, 0);
@@ -311,8 +316,7 @@ impl Entity {
         if !collision_x {
             self.position.x = temp_position.x;
         } else {
-            // X轴碰撞，速度归零
-            if self.velocity.x > 0.0 {
+            if self.velocity.x > game_config::ZERO {
                 displacement.x = collision_coord.x as f32 - (self.position.x + self.max_x_point);
             } else {
                 displacement.x =
@@ -321,6 +325,8 @@ impl Entity {
             self.position.x += displacement.x;
             temp_position.x = self.position.x;
             self.velocity.x = 0.0;
+            println!("x_collision at {:?}", collision_coord);
+            println!("displacement.x:{}", displacement.x);
         }
 
         // 同理处理Y轴和Z轴
@@ -335,24 +341,35 @@ impl Entity {
             }
         }
 
+        //需要处理是否着陆
         if !collision_y {
-            self.position.y = temp_position.y;
             self.is_grounded = false;
+            let mut test_position = temp_position;
+            test_position.y -= ZERO_VELOCITY;
+            for vertex in self.model_vertex.iter() {
+                let test_vertex = test_position + (*vertex).to_vec();
+                if Self::test_aabb_collistion(test_vertex, data) {
+                    self.is_grounded = true;
+                    break;
+                }
+            }
+            println!("grounded_check({})-----", self.is_grounded);
+            if !self.is_grounded {
+                self.position.y = temp_position.y;
+            }
         } else {
-            // Y轴碰撞，速度归零
-            if self.velocity.y > 0.0 {
+            if self.velocity.y > game_config::ZERO {
                 displacement.y = collision_coord.y as f32 - (self.position.y + self.max_y_point);
             } else {
                 displacement.y =
                     collision_coord.y as f32 + 1.0 - (self.position.y + self.min_y_point);
             }
-            //println!("y_displacement:{}", displacement.y);
             self.position.y += displacement.y;
             temp_position.y = self.position.y;
-            //println!("y: position:{:?}", self.position);
-            //println!("y: temp_position:{:?}", temp_position);
             self.velocity.y = 0.0;
             self.is_grounded = true;
+            println!("y_collision at {:?}", collision_coord);
+            println!("displacement.y:{}", displacement.y);
         }
 
         temp_position.z += displacement.z;
@@ -370,24 +387,24 @@ impl Entity {
         if !collision_z {
             self.position.z = temp_position.z;
         } else {
-            //println!("temp_position:{:?}", temp_position);
-            // Z轴碰撞，速度归零
-            if self.velocity.z > 0.0 {
+            if self.velocity.z > game_config::ZERO {
                 displacement.z = collision_coord.z as f32 - (self.position.z + self.max_z_point);
             } else {
                 displacement.z =
                     collision_coord.z as f32 + 1.0 - (self.position.z + self.min_z_point);
             }
-            println!("collision coord:{:?}", collision_coord);
-            //println!("{} + dx_z:{}", self.position.z, displacement.z);
             self.position.z += displacement.z;
             self.velocity.z = 0.0;
+            println!("z_collision at {:?}", collision_coord);
+            println!("displacement.z:{}", displacement.z);
         }
+        println!("");
     }
 
     //返回是否碰撞
     fn test_aabb_collistion(position: Point3<f32>, data: &realm::RealmData) -> bool {
         if data.get_block_f32(position).tp.is_solid() {
+            println!("collision at {:?}", position);
             return true;
         }
         false

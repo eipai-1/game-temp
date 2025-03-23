@@ -150,7 +150,8 @@ impl Control {
                 } else if player.camera.pitch > Rad(SAFE_FRAC_PI_2) {
                     player.camera.pitch = Rad(SAFE_FRAC_PI_2);
                 }
-                player.camera.forward = player.camera.direction();
+                let (yaw_sin, yaw_cos) = player.camera.yaw.sin_cos();
+                player.camera.forward = Vector3::new(yaw_cos, 0.0, yaw_sin);
                 player.camera.right = player.camera.forward.cross(Vector3::unit_y());
                 player.is_move_speed_set = false;
                 true
