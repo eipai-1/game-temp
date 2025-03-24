@@ -22,8 +22,6 @@ mod game_config;
 mod physics;
 pub mod realm;
 mod texture;
-pub mod voxel_collision;
-pub mod voxel_collision_example;
 
 struct State {
     basic_config: basic_config::BasicConfig,

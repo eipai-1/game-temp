@@ -641,6 +641,14 @@ impl RealmData {
         return chunk.get_block(x, y, z);
     }
 
+    pub fn get_block_f32(&self, absolute_coord: Point3<f32>) -> Block {
+        let x = world_to_block(absolute_coord.x);
+        let y = world_to_block(absolute_coord.y);
+        let z = world_to_block(absolute_coord.z);
+
+        return self.get_block(Point3 { x, y, z });
+    }
+
     pub fn update_wf_uniform(&mut self, new_position: Point3<i32>) {
         self.wf_uniform.position = [
             new_position.x as f32,
@@ -754,14 +762,6 @@ impl RealmData {
             // 相邻方块不是实体，则面可见
             !self.get_block(Point3::new(*nx, *ny, *nz)).tp.is_solid()
         })
-    }
-
-    pub fn get_block_f32(&self, absolute_coord: Point3<f32>) -> Block {
-        let x = (absolute_coord.x + game_config::ZERO) as i32;
-        let y = (absolute_coord.y + game_config::ZERO) as i32;
-        let z = (absolute_coord.z + game_config::ZERO) as i32;
-
-        return self.get_block(Point3 { x, y, z });
     }
 }
 
@@ -1424,6 +1424,10 @@ fn generate_wf_vertices() -> Vec<WireframeVertex> {
     v32
 }
 
+pub fn world_to_block(world_coord: f32) -> i32 {
+    (world_coord + game_config::ZERO).floor() as i32
+}
+
 //x，z是实际坐标
 pub fn get_chunk_coord(x: i32, z: i32) -> ChunkCoord {
     //floor 向下取整
@@ -1476,7 +1480,7 @@ mod tests {
     fn test_get_block() {
         let data = RealmData::new();
         assert_eq!(
-            data.get_block(Point3::new(-3, 0, -3)).tp,
+            data.get_block_f32(Point3::new(1.0, 0.0, 1.0)).tp,
             BlockType::UnderStone
         );
     }

@@ -9,30 +9,42 @@ use crate::camera::*;
 use crate::control;
 use crate::game_config;
 use crate::realm;
+use crate::realm::RealmData;
 
 pub const JUMP_SPEED: f32 = 10.0;
 pub const GRAVITATIONAL_ACCELERATION: f32 = 9.8;
 pub const DELTA_DISPLACEMENT: f32 = 1e-6;
 pub const ZERO_VELOCITY: f32 = 1e-3;
 
+//玩家实体的尺寸
+pub const PLAYER_SIZE: Vector3<f32> = Vector3::new(0.5, 1.8, 0.5);
+
+//最大速度
+pub const TERMINAL_VELOCITY: f32 = 100.0;
+
 pub enum EntityType {
     Player,
 }
 
 pub struct Entity {
+    //原点为坐标原点，三个大小按3个坐标轴正向延伸
     pub position: Point3<f32>,
     pub velocity: Vector3<f32>,
-    pub acceleration: Vector3<f32>,
     pub entity_type: EntityType,
     pub is_grounded: bool,
-    model_vertex: Vec<Point3<f32>>,
-    min_x_point: f32,
-    max_x_point: f32,
-    min_y_point: f32,
-    max_y_point: f32,
-    min_z_point: f32,
-    max_z_point: f32,
+    pub size: Vector3<f32>,
     pub is_testing: bool,
+}
+
+pub struct CollisionResult {
+    // 是否发生碰撞
+    pub collided: bool,
+    // 碰撞的方向（用单位向量表示）
+    pub normal: Vector3<f32>,
+    // 碰撞的体素位置
+    pub block_position: Option<Point3<i32>>,
+    // 碰撞的穿透深度
+    pub penetration: f32,
 }
 
 pub struct PlayerEntity {
@@ -44,8 +56,9 @@ pub struct PlayerEntity {
     pub camera_bind_group: BindGroup,
     pub camera_bind_group_layout: BindGroupLayout,
     pub camera_controller: CameraController,
-    pub is_collided: bool,
     pub is_move_speed_set: bool,
+
+    //记录上一帧的移动速度，在下一帧减去，以更新视角移动时的速度矢量
     pub move_velocity: Vector3<f32>,
 }
 
@@ -57,8 +70,9 @@ impl PlayerEntity {
     ) -> Self {
         //创建摄像机
         let mut position = Point3::new(1.0, 1.0, 1.0);
-        position.y = realm.get_first_none_empty_block(1.0, 1.0) as f32 + 10.0;
-        let camera = Camera::new(position, cgmath::Deg(90.0), cgmath::Deg(-45.0));
+        position.y = realm.get_first_none_empty_block(1.0, 1.0) as f32 + 5.0;
+        let camera_position = position + Vector3::new(0.0, PLAYER_SIZE.y, 0.0);
+        let camera = Camera::new(camera_position, cgmath::Deg(90.0), cgmath::Deg(-45.0));
         let projection = Projection::new(
             basic_config.config.width,
             basic_config.config.height,
@@ -130,10 +144,8 @@ impl PlayerEntity {
             basic_config.config.height / 2,
         );
 
-        let is_collided = false;
-
         Self {
-            entity: Entity::new(position, EntityType::Player),
+            entity: Entity::new(position, PLAYER_SIZE, EntityType::Player),
             camera,
             projection,
             camera_uniform,
@@ -141,13 +153,12 @@ impl PlayerEntity {
             camera_bind_group,
             camera_bind_group_layout,
             camera_controller,
-            is_collided,
             is_move_speed_set: false,
             move_velocity: Vector3::new(0.0, 0.0, 0.0),
         }
     }
 
-    pub fn update_camera(&mut self, dt: f32, data: &mut realm::RealmData) {
+    pub fn update_camera(&mut self, data: &mut realm::RealmData) {
         self.update_wf(data);
     }
 
@@ -168,11 +179,11 @@ impl PlayerEntity {
     }
 
     pub fn update(&mut self, dt: f32, data: &mut realm::RealmData) {
-        //if self.is_move_speed_set {
-        //每一帧都重新建立一个移动速度
-        self.entity.velocity -= self.move_velocity;
+        // 保留Y方向速度（重力）
+        let y_velocity = self.entity.velocity.y;
+
+        // 计算新的移动速度
         let mut move_velocity: Vector3<f32> = Vector3::new(0.0, 0.0, 0.0);
-        //println!("camera.forward: {:?}", self.camera.forward);
         if self.camera_controller.is_forward_pressed {
             move_velocity += self.camera.forward * self.camera_controller.speed;
         }
@@ -187,226 +198,288 @@ impl PlayerEntity {
         }
         move_velocity.y = 0.0;
         self.move_velocity = move_velocity;
-        self.entity.velocity += self.move_velocity;
-        //self.is_move_speed_set = true;
-        //}
+
+        // 直接设置水平速度（不累积）
+        self.entity.velocity = Vector3::new(self.move_velocity.x, y_velocity, self.move_velocity.z);
+
         self.entity.update(dt, data);
         self.camera.position = self.entity.position;
-        //self.camera.position.y += 1.8;
-        self.update_camera(dt, data);
+        self.camera.position.y += PLAYER_SIZE.y;
+        self.update_camera(data);
         self.camera_uniform
             .update_view_proj(&self.camera, &self.projection);
     }
 }
 
 impl Entity {
-    pub fn new(position: Point3<f32>, entity_type: EntityType) -> Self {
-        let mut model_vertex: Vec<Point3<f32>> = vec![];
-        let mut min_x_point = 0.0;
-        let mut max_x_point = 0.0;
-        let mut min_y_point = 0.0;
-        let mut max_y_point = 0.0;
-        let mut min_z_point = 0.0;
-        let mut max_z_point = 0.0;
+    pub fn new(position: Point3<f32>, size: Vector3<f32>, entity_type: EntityType) -> Self {
         let is_testing = false;
-        match entity_type {
-            EntityType::Player => {
-                model_vertex.push(Point3::new(0.0, 0.0, 0.0));
-                model_vertex.push(Point3::new(0.5, 0.0, 0.0));
-                model_vertex.push(Point3::new(0.5, 0.0, 0.5));
-                model_vertex.push(Point3::new(0.0, 0.0, 0.5));
 
-                model_vertex.push(Point3::new(0.0, -1.8, 0.0));
-                model_vertex.push(Point3::new(0.5, -1.8, 0.0));
-                model_vertex.push(Point3::new(0.5, -1.8, 0.5));
-                model_vertex.push(Point3::new(0.0, -1.8, 0.5));
-                min_x_point = 0.0;
-                max_x_point = 0.5;
-                min_y_point = -1.8;
-                max_y_point = 0.0;
-                min_z_point = 0.0;
-                max_z_point = 0.5;
-            }
-        }
         let is_grounded = false;
         Self {
             position,
             velocity: Vector3::new(0.0, 0.0, 0.0),
-            acceleration: Vector3::new(0.0, 0.0, 0.0),
             entity_type,
-            model_vertex,
-            min_x_point,
-            max_x_point,
-            min_y_point,
-            max_y_point,
-            min_z_point,
-            max_z_point,
+            size,
             is_grounded,
             is_testing,
         }
     }
 
-    pub fn update(&mut self, dt: f32, data: &realm::RealmData) {
-        if self.is_grounded {
-            self.acceleration.y = 0.0;
-        } else {
-            self.acceleration.y = -GRAVITATIONAL_ACCELERATION;
-        }
-        self.dynamic_collision_detection(dt, data)
-    }
+    fn apply_gravity(&mut self, dt: f32) {
+        if !self.is_grounded {
+            self.velocity.y -= GRAVITATIONAL_ACCELERATION * dt;
 
-    fn static_collision_detection(&mut self, data: &realm::RealmData) -> bool {
-        for vertex in self.model_vertex.iter() {
-            if Self::test_aabb_collistion(self.position + (*vertex).to_vec(), data) {
-                return true;
+            if self.velocity.y < -TERMINAL_VELOCITY {
+                self.velocity.y = -TERMINAL_VELOCITY;
             }
         }
-        false
     }
 
-    //都是返回是否碰撞
-    fn is_grounded(&mut self, data: &realm::RealmData) -> bool {
-        for vertex in self.model_vertex.iter() {
-            if Self::test_aabb_collistion(self.position + (*vertex).to_vec(), data) {
-                return true;
-            }
+    /// 检查与某个体素是否发生碰撞
+    fn check_block_collision(
+        &self,
+        block_pos: Point3<i32>,
+        data: &RealmData,
+    ) -> Option<CollisionResult> {
+        // 获取方块类型
+        let block = data.get_block(block_pos);
+
+        // 如果方块不是实心的，则没有碰撞
+        if !block.tp.is_solid() {
+            return None;
         }
-        false
+
+        // 方块的AABB表示
+        let block_min = Point3::new(block_pos.x as f32, block_pos.y as f32, block_pos.z as f32);
+        let block_max = Point3::new(
+            block_pos.x as f32 + 1.0,
+            block_pos.y as f32 + 1.0,
+            block_pos.z as f32 + 1.0,
+        );
+
+        // 计算玩家AABB和方块AABB的重叠情况
+        let overlap_min = Vector3::new(
+            (self.position.x - block_max.x).max(block_min.x - (self.position.x + self.size.x)),
+            (self.position.y - block_max.y).max(block_min.y - (self.position.y + self.size.y)),
+            (self.position.z - block_max.z).max(block_min.z - (self.position.z + self.size.z)),
+        );
+
+        // 如果任一轴上没有重叠，则没有碰撞
+        if overlap_min.x > 0.0 || overlap_min.y > 0.0 || overlap_min.z > 0.0 {
+            return None;
+        }
+
+        // 计算穿透深度和碰撞法线
+        let (penetration, axis) = self.find_min_penetration(block_min, block_max);
+
+        Some(CollisionResult {
+            collided: true,
+            normal: axis,
+            block_position: Some(block_pos),
+            penetration,
+        })
     }
 
-    //返回是否碰撞
-    fn dynamic_collision_detection(&mut self, dt: f32, data: &realm::RealmData) {
-        // 计算速度和位移
-        //有加速度时计算加速度
-        if self.acceleration.magnitude() > game_config::ZERO {
-            self.velocity = self.velocity + self.acceleration * dt;
-        }
-        //没有速度时不进行碰撞检测
-        if self.velocity.magnitude() < ZERO_VELOCITY {
-            self.is_testing = false;
-            return;
-        }
+    /// 找出最小穿透深度和对应的轴
+    fn find_min_penetration(
+        &self,
+        block_min: Point3<f32>,
+        block_max: Point3<f32>,
+    ) -> (f32, Vector3<f32>) {
+        // 计算各个轴上的穿透深度
+        let min_x =
+            (block_max.x - self.position.x).min((self.position.x + self.size.x) - block_min.x);
+        let min_y =
+            (block_max.y - self.position.y).min((self.position.y + self.size.y) - block_min.y);
+        let min_z =
+            (block_max.z - self.position.z).min((self.position.z + self.size.z) - block_min.z);
 
-        self.is_testing = true;
-
-        let mut displacement = self.velocity * dt;
-
-        println!("velocity: {:?}", self.velocity);
-        println!("start decting at {:?}", self.position);
-        println!("displacement: {:?}", displacement);
-
-        let mut temp_position = self.position;
-        let mut collision_coord = Point3::new(0, 0, 0);
-
-        //先尝试X轴移动
-        temp_position.x += displacement.x;
-        let mut collision_x = false;
-
-        // 检查X轴移动是否碰撞
-        for vertex in self.model_vertex.iter() {
-            let test_vertex = temp_position + (*vertex).to_vec();
-            if Self::test_aabb_collistion(test_vertex, data) {
-                collision_x = true;
-                collision_coord = test_vertex.cast::<i32>().unwrap();
-                break;
-            }
-        }
-
-        // 如果X轴没有碰撞，更新位置
-        if !collision_x {
-            self.position.x = temp_position.x;
-        } else {
-            if self.velocity.x > game_config::ZERO {
-                displacement.x = collision_coord.x as f32 - (self.position.x + self.max_x_point);
+        // 确定穿透最小的轴
+        if min_x <= min_y && min_x <= min_z {
+            // X轴穿透最小
+            let normal = if self.position.x < (block_min.x + block_max.x) / 2.0 {
+                Vector3::new(-1.0, 0.0, 0.0)
             } else {
-                displacement.x =
-                    collision_coord.x as f32 + 1.0 - (self.position.x + self.min_x_point);
+                Vector3::new(1.0, 0.0, 0.0)
+            };
+            (min_x, normal)
+        } else if min_y <= min_x && min_y <= min_z {
+            // Y轴穿透最小
+            let center_y = self.position.y + self.size.y / 2.0;
+            let normal = if center_y < (block_min.y + block_max.y) / 2.0 {
+                Vector3::new(0.0, -1.0, 0.0)
+            } else {
+                Vector3::new(0.0, 1.0, 0.0)
+            };
+            (min_y, normal)
+        } else {
+            // Z轴穿透最小
+            let normal = if self.position.z < (block_min.z + block_max.z) / 2.0 {
+                Vector3::new(0.0, 0.0, -1.0)
+            } else {
+                Vector3::new(0.0, 0.0, 1.0)
+            };
+            (min_z, normal)
+        }
+    }
+
+    /// 检测所有可能发生碰撞的体素
+    fn check_surrounding_blocks(&self, data: &RealmData) -> Vec<CollisionResult> {
+        let mut collisions = Vec::new();
+
+        // 确定需要检查的区域
+        let min_block = Vector3::new(
+            (self.position.x - 1.0).floor() as i32,
+            (self.position.y - 1.0).floor() as i32,
+            (self.position.z - 1.0).floor() as i32,
+        );
+
+        let max_block = Vector3::new(
+            (self.position.x + self.size.x + 1.0).ceil() as i32,
+            (self.position.y + self.size.y + 1.0).ceil() as i32,
+            (self.position.z + self.size.z + 1.0).ceil() as i32,
+        );
+
+        // 检查所有可能碰撞的方块
+        for x in min_block.x..max_block.x {
+            for y in min_block.y..max_block.y {
+                for z in min_block.z..max_block.z {
+                    let block_pos = Point3::new(x, y, z);
+                    if let Some(collision) = self.check_block_collision(block_pos, data) {
+                        collisions.push(collision);
+                    }
+                }
             }
-            self.position.x += displacement.x;
-            temp_position.x = self.position.x;
-            self.velocity.x = 0.0;
-            println!("x_collision at {:?}", collision_coord);
-            println!("displacement.x:{}", displacement.x);
         }
 
-        // 同理处理Y轴和Z轴
-        temp_position.y += displacement.y;
-        let mut collision_y = false;
-        for vertex in self.model_vertex.iter() {
-            let test_vertex = temp_position + (*vertex).to_vec();
-            if Self::test_aabb_collistion(test_vertex, data) {
-                collision_y = true;
-                collision_coord = test_vertex.cast::<i32>().unwrap();
-                break;
-            }
+        collisions
+    }
+
+    /// 解决碰撞，并更新角色位置
+    fn resolve_collision(&mut self, collision: &CollisionResult) {
+        // 调整位置以解决穿透
+        let correction = collision.normal * collision.penetration;
+        self.position = self.position + correction;
+
+        // 计算速度在碰撞法线方向上的分量
+        let velocity_dot_normal = self.velocity.dot(collision.normal);
+
+        // 如果物体正在向碰撞平面移动
+        if velocity_dot_normal < 0.0 {
+            // 使用投影保留平行于碰撞面的速度分量（滑动效果）
+            // 计算平行于碰撞面的速度
+            let parallel_velocity = self.velocity - collision.normal * velocity_dot_normal;
+
+            // 设置速度为平行分量（保留滑动，消除穿透）
+            self.velocity = parallel_velocity;
         }
 
-        //需要处理是否着陆
-        if !collision_y {
-            self.is_grounded = false;
-            let mut test_position = temp_position;
-            test_position.y -= ZERO_VELOCITY;
-            for vertex in self.model_vertex.iter() {
-                let test_vertex = test_position + (*vertex).to_vec();
-                if Self::test_aabb_collistion(test_vertex, data) {
+        // 检查是否接触地面
+        if collision.normal.y > 0.7 {
+            // 如果法线主要朝上
+            self.is_grounded = true;
+        }
+    }
+
+    /// 更新物理并处理碰撞
+    pub fn update(&mut self, dt: f32, data: &RealmData) {
+        // 保存原始位置，用于回退
+        let original_position = self.position;
+
+        // 应用物理效果（如重力）
+        self.apply_gravity(dt);
+
+        // 假设我们会失去地面接触
+        self.is_grounded = false;
+
+        // 执行运动积分（使用半隐式欧拉方法）
+        self.position = self.position + self.velocity * dt;
+
+        // 检测和解决碰撞
+        let collisions = self.check_surrounding_blocks(data);
+
+        // 如果没有碰撞，可以直接返回
+        if collisions.is_empty() {
+            // 检查是否站在地面上
+            let ground_test_position = Point3::new(
+                self.position.x,
+                self.position.y - 0.1, // 向下偏移一点点检测地面
+                self.position.z,
+            );
+
+            // 检查四个角落是否有地面
+            let corners = [
+                Point3::new(
+                    ground_test_position.x,
+                    ground_test_position.y,
+                    ground_test_position.z,
+                ),
+                Point3::new(
+                    ground_test_position.x + self.size.x,
+                    ground_test_position.y,
+                    ground_test_position.z,
+                ),
+                Point3::new(
+                    ground_test_position.x,
+                    ground_test_position.y,
+                    ground_test_position.z + self.size.z,
+                ),
+                Point3::new(
+                    ground_test_position.x + self.size.x,
+                    ground_test_position.y,
+                    ground_test_position.z + self.size.z,
+                ),
+            ];
+
+            for corner in &corners {
+                let block_pos = Point3::new(
+                    corner.x.floor() as i32,
+                    corner.y.floor() as i32,
+                    corner.z.floor() as i32,
+                );
+
+                if data.get_block(block_pos).tp.is_solid() {
                     self.is_grounded = true;
                     break;
                 }
             }
-            println!("grounded_check({})-----", self.is_grounded);
-            if !self.is_grounded {
-                self.position.y = temp_position.y;
-            }
-        } else {
-            if self.velocity.y > game_config::ZERO {
-                displacement.y = collision_coord.y as f32 - (self.position.y + self.max_y_point);
-            } else {
-                displacement.y =
-                    collision_coord.y as f32 + 1.0 - (self.position.y + self.min_y_point);
-            }
-            self.position.y += displacement.y;
-            temp_position.y = self.position.y;
-            self.velocity.y = 0.0;
-            self.is_grounded = true;
-            println!("y_collision at {:?}", collision_coord);
-            println!("displacement.y:{}", displacement.y);
+
+            return;
         }
 
-        temp_position.z += displacement.z;
-        let mut collision_z = false;
-        for vertex in self.model_vertex.iter() {
-            let test_vertex = temp_position + (*vertex).to_vec();
-            if Self::test_aabb_collistion(test_vertex, data) {
-                collision_z = true;
-                collision_coord = test_vertex.cast::<i32>().unwrap();
-                break;
-            }
+        // 回退到原始位置
+        self.position = original_position;
+
+        // 分离轴处理 - 仅在每个轴上移动小增量并检测碰撞
+
+        // 1. X轴移动
+        self.position.x += self.velocity.x * dt;
+
+        let x_collisions = self.check_surrounding_blocks(data);
+        for collision in &x_collisions {
+            self.resolve_collision(collision);
         }
 
-        //最后这里temp_position不用更新了，前面要更新是因为后面要用到temp_position
-        if !collision_z {
-            self.position.z = temp_position.z;
-        } else {
-            if self.velocity.z > game_config::ZERO {
-                displacement.z = collision_coord.z as f32 - (self.position.z + self.max_z_point);
-            } else {
-                displacement.z =
-                    collision_coord.z as f32 + 1.0 - (self.position.z + self.min_z_point);
-            }
-            self.position.z += displacement.z;
-            self.velocity.z = 0.0;
-            println!("z_collision at {:?}", collision_coord);
-            println!("displacement.z:{}", displacement.z);
-        }
-        println!("");
-    }
+        // 2. Y轴移动
+        self.position.y += self.velocity.y * dt;
 
-    //返回是否碰撞
-    fn test_aabb_collistion(position: Point3<f32>, data: &realm::RealmData) -> bool {
-        if data.get_block_f32(position).tp.is_solid() {
-            println!("collision at {:?}", position);
-            return true;
+        let y_collisions = self.check_surrounding_blocks(data);
+        for collision in &y_collisions {
+            self.resolve_collision(collision);
         }
-        false
+
+        // 3. Z轴移动
+        self.position.z += self.velocity.z * dt;
+
+        let z_collisions = self.check_surrounding_blocks(data);
+        for collision in &z_collisions {
+            self.resolve_collision(collision);
+        }
+
+        // 如果速度非常小，则认为静止
+        if self.velocity.magnitude() < game_config::ZERO {
+            self.velocity = Vector3::zero();
+        }
     }
 }
