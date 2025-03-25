@@ -215,6 +215,9 @@ fn materials_enum_to_string(i: u32) -> &'static str {
         GrassBlockSide => "grass_block_side",
         GrassBlockTop => "grass_block_top",
         Dirt => "dirt",
+        BirchLog => "birch_log",
+        BirchLeaves => "birch_leaves",
+        BirchLogTop => "birch_log_top",
         Empty => "",
     }
 }

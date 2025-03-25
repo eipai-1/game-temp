@@ -7,8 +7,6 @@ use num_derive::FromPrimitive;
 use serde::{Deserialize, Serialize};
 use wgpu::{util::DeviceExt, *};
 
-pub const BLOCK_NUM: usize = 5;
-
 use cgmath::*;
 
 pub const TEXT_FRAC: f32 = 16.0 / 512.0;
@@ -205,9 +203,25 @@ pub enum BlockType {
 
     //泥土
     Dirt = 4,
-}
 
-pub const BLOCK_MATERIALS_NUM: u32 = 5;
+    //白桦原木
+    BirchLog = 5,
+
+    //白桦树叶
+    BirchLeaves = 6,
+}
+//添加方块之后记得方块数量
+pub const BLOCK_NUM: usize = 7;
+
+impl BlockType {
+    pub fn is_transparent(&self) -> bool {
+        match self {
+            //BlockType::BirchLeaves => true,
+            BlockType::Empty => true,
+            _ => false,
+        }
+    }
+}
 
 #[repr(u32)]
 #[derive(FromPrimitive)]
@@ -218,7 +232,12 @@ pub enum BlockMaterials {
     GrassBlockSide = 2,
     GrassBlockTop = 3,
     Dirt = 4,
+    BirchLogTop = 5,
+    BirchLog = 6,
+    BirchLeaves = 7,
 }
+// 添加材质后记得修改材质数量
+pub const BLOCK_MATERIALS_NUM: u32 = 8;
 
 #[allow(unused)]
 #[derive(Debug, Default, Clone, Copy)]
@@ -480,80 +499,8 @@ pub struct RealmData {
 }
 impl RealmData {
     pub fn new() -> Self {
-        use BlockMaterials::*;
-        let mut all_block: Vec<BlockInfo> = vec![BlockInfo::default(); BLOCK_NUM];
-
-        let empty = BlockInfo::new(
-            "Empty",
-            [
-                Empty as u32,
-                Empty as u32,
-                Empty as u32,
-                Empty as u32,
-                Empty as u32,
-                Empty as u32,
-            ],
-            BlockType::Empty,
-        );
-        all_block[empty.block_type as usize] = empty;
-
-        let under_stone = BlockInfo::new(
-            "bedrock",
-            [
-                UnderStone as u32,
-                UnderStone as u32,
-                UnderStone as u32,
-                UnderStone as u32,
-                UnderStone as u32,
-                UnderStone as u32,
-            ],
-            BlockType::UnderStone,
-        );
-        all_block[under_stone.block_type as usize] = under_stone;
-
-        let stone = BlockInfo::new(
-            "stone",
-            [
-                Stone as u32,
-                Stone as u32,
-                Stone as u32,
-                Stone as u32,
-                Stone as u32,
-                Stone as u32,
-            ],
-            BlockType::Stone,
-        );
-        all_block[stone.block_type as usize] = stone;
-
-        let dirt = BlockInfo::new(
-            "dirt",
-            [
-                Dirt as u32,
-                Dirt as u32,
-                Dirt as u32,
-                Dirt as u32,
-                Dirt as u32,
-                Dirt as u32,
-            ],
-            BlockType::Dirt,
-        );
-        all_block[dirt.block_type as usize] = dirt;
-
-        //创建草方块
-        let grass = BlockInfo::new(
-            "grass_block_side",
-            [
-                GrassBlockSide as u32,
-                GrassBlockTop as u32,
-                GrassBlockSide as u32,
-                Dirt as u32,
-                GrassBlockSide as u32,
-                GrassBlockSide as u32,
-            ],
-            BlockType::Grass,
-        );
-        all_block[grass.block_type as usize] = grass;
         //草方块创建完成
+        let all_block = create_all_block();
 
         let wf_uniform = WireframeUniform {
             position: [0.0, 0.0, 0.0],
@@ -737,10 +684,12 @@ impl RealmData {
             (x, y, z - 1),
         ]
         .iter()
-        //any()遍历检查是否有ture，否则返回false
+        //any()遍历检查是否有true，否则返回false
         .any(|(nx, ny, nz)| {
-            // 相邻方块为空，则面可见
-            self.get_block(Point3::new(*nx, *ny, *nz)).tp == BlockType::Empty
+            // 相邻方块为透明，则面可见
+            self.get_block(Point3::new(*nx, *ny, *nz))
+                .tp
+                .is_transparent()
         })
     }
 }
@@ -902,15 +851,93 @@ impl Realm {
 
         let blocks = vec![BLOCK_EMPTY; BLOCK_NUM_PER_CHUNK];
         let mut chunk = Chunk::new(ChunkData { blocks });
+        let mut tree_placed: Vec<Vec<bool>> =
+            vec![vec![false; CHUNK_SIZE as usize]; CHUNK_SIZE as usize];
 
         for x in 0..CHUNK_SIZE {
             for z in 0..CHUNK_SIZE {
                 let absolute_x = x + chunk_coord.x * CHUNK_SIZE;
                 let absolute_z = z + chunk_coord.z * CHUNK_SIZE;
                 //get返回值为[-1, 1]
-                let height = (perlin.get([absolute_x as f64 / 16.0, absolute_z as f64 / 16.0])
+                let height = (perlin.get([absolute_x as f64 / 32.0, absolute_z as f64 / 32.0])
                     * 8.0) as i32
                     + 32;
+
+                let tree_value = perlin.get([
+                    (absolute_z + CHUNK_SIZE / 2) as f64 / 4.0,
+                    (absolute_x + CHUNK_SIZE / 2) as f64 / 4.0,
+                ]);
+                if tree_value > 0.80 {
+                    if x > 2 && z > 2 && x < CHUNK_SIZE - 2 && z < CHUNK_SIZE - 2 {
+                        let mut is_place = true;
+                        for i in -2..=2 {
+                            for j in -2..=2 {
+                                if tree_placed[(x + i) as usize][(z + j) as usize] {
+                                    is_place = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if is_place {
+                            let tree_height = ((1.0 - tree_value) * 15.0 + 4.0) as i32;
+                            for y in 0..tree_height {
+                                chunk.set_block(x, height + y, z, Block::new(BlockType::BirchLog));
+                            }
+                            for i in -2..=2 {
+                                for j in -2..=2 {
+                                    tree_placed[(x + i) as usize][(z + j) as usize] = true;
+                                }
+                            }
+                            for i in -2..=2 {
+                                for j in -2..=2 {
+                                    let y = height + tree_height - 2;
+                                    if i == 0 && j == 0 {
+                                        continue;
+                                    }
+                                    chunk.set_block(
+                                        x + i,
+                                        y,
+                                        z + j,
+                                        Block::new(BlockType::BirchLeaves),
+                                    );
+                                }
+                            }
+                            for i in -2i32..=2 {
+                                for j in -2i32..=2 {
+                                    let y = height + tree_height - 1;
+                                    if i == 0 && j == 0 {
+                                        continue;
+                                    }
+                                    if i.abs() == 2 && j.abs() == 2 {
+                                        continue;
+                                    }
+                                    chunk.set_block(
+                                        x + i,
+                                        y,
+                                        z + j,
+                                        Block::new(BlockType::BirchLeaves),
+                                    );
+                                }
+                            }
+                            for i in -1i32..=1 {
+                                for j in -1i32..=1 {
+                                    let y = height + tree_height;
+                                    if (i.abs() == 1 && j.abs() == 1) {
+                                        continue;
+                                    }
+                                    chunk.set_block(
+                                        x + i,
+                                        y,
+                                        z + j,
+                                        Block::new(BlockType::BirchLeaves),
+                                    );
+                                }
+                            }
+                            tree_placed[x as usize][z as usize] = true;
+                        }
+                    }
+                }
+
                 for y in 0..height {
                     let block = if y == height - 1 {
                         Block::new(BlockType::Grass)
@@ -1139,7 +1166,12 @@ impl Realm {
                 //如果offset为MAX，则说明该方块不在缓冲区内，即不可见
                 //又如果方块为非空，则讲此方块插入缓冲区
                 if offset == u64::MAX {
-                    if self.data.get_block(Point3::new(*x, *y, *z)) != BLOCK_EMPTY {
+                    if !self
+                        .data
+                        .get_block(Point3::new(*x, *y, *z))
+                        .tp
+                        .is_transparent()
+                    {
                         self.update_single_block_buffer(Point3::new(*x, *y, *z), queue);
                     }
                 }
@@ -1417,6 +1449,112 @@ pub fn get_local_coord(coord: Point3<i32>) -> Point3<i32> {
     let local_x = coord.x.rem_euclid(chunk_size);
     let local_z = coord.z.rem_euclid(chunk_size);
     Point3::new(local_x, coord.y, local_z)
+}
+
+fn create_all_block() -> Vec<BlockInfo> {
+    use BlockMaterials::*;
+    let mut all_block: Vec<BlockInfo> = vec![BlockInfo::default(); BLOCK_NUM];
+
+    let empty = BlockInfo::new(
+        "Empty",
+        [
+            Empty as u32,
+            Empty as u32,
+            Empty as u32,
+            Empty as u32,
+            Empty as u32,
+            Empty as u32,
+        ],
+        BlockType::Empty,
+    );
+    all_block[empty.block_type as usize] = empty;
+
+    let under_stone = BlockInfo::new(
+        "bedrock",
+        [
+            UnderStone as u32,
+            UnderStone as u32,
+            UnderStone as u32,
+            UnderStone as u32,
+            UnderStone as u32,
+            UnderStone as u32,
+        ],
+        BlockType::UnderStone,
+    );
+    all_block[under_stone.block_type as usize] = under_stone;
+
+    let stone = BlockInfo::new(
+        "stone",
+        [
+            Stone as u32,
+            Stone as u32,
+            Stone as u32,
+            Stone as u32,
+            Stone as u32,
+            Stone as u32,
+        ],
+        BlockType::Stone,
+    );
+    all_block[stone.block_type as usize] = stone;
+
+    let dirt = BlockInfo::new(
+        "dirt",
+        [
+            Dirt as u32,
+            Dirt as u32,
+            Dirt as u32,
+            Dirt as u32,
+            Dirt as u32,
+            Dirt as u32,
+        ],
+        BlockType::Dirt,
+    );
+    all_block[dirt.block_type as usize] = dirt;
+
+    //创建草方块
+    let grass = BlockInfo::new(
+        "grass_block_side",
+        [
+            GrassBlockSide as u32,
+            GrassBlockTop as u32,
+            GrassBlockSide as u32,
+            Dirt as u32,
+            GrassBlockSide as u32,
+            GrassBlockSide as u32,
+        ],
+        BlockType::Grass,
+    );
+    all_block[grass.block_type as usize] = grass;
+
+    let brich_log = BlockInfo::new(
+        "birch_log",
+        [
+            BirchLog as u32,
+            BirchLogTop as u32,
+            BirchLog as u32,
+            BirchLogTop as u32,
+            BirchLog as u32,
+            BirchLog as u32,
+        ],
+        BlockType::BirchLog,
+    );
+    all_block[brich_log.block_type as usize] = brich_log;
+
+    let brich_leaves = BlockInfo::new(
+        "birch_leaves",
+        [
+            BirchLeaves as u32,
+            BirchLeaves as u32,
+            BirchLeaves as u32,
+            BirchLeaves as u32,
+            BirchLeaves as u32,
+            BirchLeaves as u32,
+        ],
+        BlockType::BirchLeaves,
+    );
+    all_block[brich_leaves.block_type as usize] = brich_leaves;
+
+    all_block
 }
 
 #[cfg(test)]
