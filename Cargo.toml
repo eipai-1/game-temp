@@ -41,6 +41,7 @@ num-derive = "0.4"
 num-traits = "0.2"
 
 noise = "0.9"
+crossbeam-channel = "0.5.8"
 
 # 读取图像
 [dependencies.image]

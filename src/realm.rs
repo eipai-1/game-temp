@@ -9,6 +9,8 @@ use wgpu::{util::DeviceExt, *};
 
 use cgmath::*;
 
+use crate::chunk_generator::{self, ChunkGenerator};
+
 pub const TEXT_FRAC: f32 = 16.0 / 512.0;
 const WF_SIZE: f32 = 0.01;
 const WF_WIDTH: f32 = 0.04;
@@ -371,7 +373,7 @@ pub struct Block {
 }
 
 impl Block {
-    fn new(tp: BlockType) -> Self {
+    pub fn new(tp: BlockType) -> Self {
         Self { tp }
     }
 }
@@ -381,7 +383,7 @@ impl Block {
  */
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct ChunkData {
-    blocks: Vec<Block>,
+    pub blocks: Vec<Block>,
 }
 
 impl ChunkData {
@@ -421,7 +423,7 @@ pub struct Chunk {
 }
 
 impl Chunk {
-    fn new(data: ChunkData) -> Self {
+    pub fn new(data: ChunkData) -> Self {
         //let is_dirty = AtomicBool::new(false);
         let coord_to_offset = vec![u64::MAX; BLOCK_NUM_PER_CHUNK];
         let instance: Vec<Instance> = vec![Instance::default(); BLOCK_NUM_PER_CHUNK];
@@ -520,20 +522,20 @@ impl RealmData {
             panic!("invaild chunk_rad value:{}", chunk_rad);
         }
 
-        let mut chunk_map: HashMap<ChunkCoord, Chunk> = HashMap::new();
+        let chunk_map: HashMap<ChunkCoord, Chunk> = HashMap::new();
 
         let seed = 2025318;
         //init chunk
-        Self::load_all_chunk(
-            chunk_rad as i32,
-            center_chunk_pos,
-            &mut chunk_map,
-            name,
-            seed,
-        );
+        //Self::load_all_chunk(
+        //    chunk_rad as i32,
+        //    center_chunk_pos,
+        //    &mut chunk_map,
+        //    name,
+        //    seed,
+        //);
 
         println!("chunk_map.len():{}", chunk_map.len());
-        Self::debug_print(&chunk_map.get(&center_chunk_pos).unwrap());
+        //Self::debug_print(&chunk_map.get(&center_chunk_pos).unwrap());
 
         Self {
             all_block,
@@ -586,22 +588,22 @@ impl RealmData {
 
     //以center_chunk_pos为中心,chunk_rad为半径加载正方形区块
     //加载全部需要的区块
-    fn load_all_chunk(
-        chunk_rad: i32,
-        center_chunk_pos: ChunkCoord,
-        chunk_map: &mut HashMap<ChunkCoord, Chunk>,
-        world_dir: &str,
-        seed: u32,
-    ) {
-        for relative_x in -chunk_rad..=chunk_rad {
-            for relative_z in -chunk_rad..=chunk_rad {
-                let x = center_chunk_pos.x + relative_x;
-                let z = center_chunk_pos.z + relative_z;
-                let coord = ChunkCoord::new(x, z);
-                Realm::init_chunk(&coord, chunk_map, world_dir, seed);
-            }
-        }
-    }
+    //fn load_all_chunk(
+    //    chunk_rad: i32,
+    //    center_chunk_pos: ChunkCoord,
+    //    chunk_map: &mut HashMap<ChunkCoord, Chunk>,
+    //    world_dir: &str,
+    //    seed: u32,
+    //) {
+    //    for relative_x in -chunk_rad..=chunk_rad {
+    //        for relative_z in -chunk_rad..=chunk_rad {
+    //            let x = center_chunk_pos.x + relative_x;
+    //            let z = center_chunk_pos.z + relative_z;
+    //            let coord = ChunkCoord::new(x, z);
+    //            Realm::init_chunk(&coord, chunk_map, world_dir, seed, &ChunkGenerator::new(4));
+    //        }
+    //    }
+    //}
 
     fn save_chunk(&self, coord: &ChunkCoord) {
         match self.chunk_map.get(coord).unwrap().save(&self.name, coord) {
@@ -828,6 +830,7 @@ impl RenderResources {
 pub struct Realm {
     pub data: RealmData,
     pub render_res: RenderResources,
+    chunk_generator: ChunkGenerator,
 }
 impl Realm {
     pub fn new(device: &Device) -> Self {
@@ -835,8 +838,13 @@ impl Realm {
         data.load_all_instance();
 
         let render_res = RenderResources::new(device, &data);
+        let chunk_generator = ChunkGenerator::new(4);
 
-        Self { data, render_res }
+        Self {
+            data,
+            render_res,
+            chunk_generator,
+        }
     }
 
     //生成地形后直接添加到chunk_map中
@@ -1000,22 +1008,30 @@ impl Realm {
         chunk_map: &mut HashMap<ChunkCoord, Chunk>,
         world_dir: &str,
         seed: u32,
-    ) {
+        chunk_generator: &ChunkGenerator,
+    ) -> bool {
         match chunk_map.get(chunk_pos) {
             //存在就不要重复添加
-            Some(_) => {}
+            Some(_) => {
+                return true;
+            }
 
             None => {
+                if chunk_generator.is_chunk_pending(chunk_pos) {
+                    return false;
+                }
                 match Chunk::load(world_dir, chunk_pos) {
-                    //存在则读取
+                    //不存在则尝试读取
                     Ok(Some(data)) => {
                         let chunk = Chunk::new(data);
                         chunk_map.insert(*chunk_pos, chunk);
+                        return true;
                     }
 
-                    //不存在则生成
+                    //读取失败则生成
                     Ok(None) => {
-                        Self::generate_terrian(chunk_map, chunk_pos, seed);
+                        chunk_generator.request_chunk(*chunk_pos, seed);
+                        return false;
                     }
                     //读取错误
                     Err(e) => {
@@ -1028,21 +1044,38 @@ impl Realm {
         }
     }
 
-    fn load_chunk(&mut self, device: &Device, new_chunk_pos: &ChunkCoord) {
-        Self::init_chunk(
+    fn load_chunk(&mut self, device: &Device, new_chunk_pos: &ChunkCoord) -> bool {
+        let loaded = Self::init_chunk(
             new_chunk_pos,
             &mut self.data.chunk_map,
             self.data.name,
             self.data.seed,
+            &self.chunk_generator,
         );
 
-        self.data.create_instance(new_chunk_pos);
+        if loaded {
+            self.data.create_instance(new_chunk_pos);
+            self.render_res.insert_instance_buffer(
+                device,
+                new_chunk_pos,
+                &self.data.chunk_map.get(new_chunk_pos).unwrap().instance,
+            );
+        }
+        loaded
+    }
 
-        self.render_res.insert_instance_buffer(
-            device,
-            new_chunk_pos,
-            &self.data.chunk_map[new_chunk_pos].instance,
-        );
+    fn process_generated_chunks(&mut self, device: &Device) {
+        let generated_chunks = self.chunk_generator.get_generated_chunks();
+        for respose in generated_chunks {
+            self.data.chunk_map.insert(respose.coord, respose.chunk);
+            self.data.create_instance(&respose.coord);
+            self.render_res.insert_instance_buffer(
+                device,
+                &respose.coord,
+                &self.data.chunk_map.get(&respose.coord).unwrap().instance,
+            );
+            println!("异步加载区块位置:{:?}", respose.coord);
+        }
     }
 
     fn unload_chunk(&mut self, chunk_pos: &ChunkCoord) {
@@ -1051,6 +1084,8 @@ impl Realm {
     }
 
     pub fn update(&mut self, player_pos: &Point3<f32>, device: &Device) {
+        self.process_generated_chunks(device);
+
         let new_coord = get_chunk_coord(player_pos.x as i32, player_pos.z as i32);
         let dx = new_coord.x - self.data.center_chunk_pos.x;
         let dz = new_coord.z - self.data.center_chunk_pos.z;
@@ -1071,6 +1106,8 @@ impl Realm {
     //两个offset都只有-1, 0, 1三个值
     //此时的区块中心还没更新
     fn update_helper(&mut self, x_offset: i32, z_offset: i32, device: &Device) {
+        let mut loaded_all = true;
+
         if z_offset != 0 {
             for x in -self.data.chunk_rad..=self.data.chunk_rad {
                 let old_chunk_pos = ChunkCoord::new(
@@ -1082,8 +1119,11 @@ impl Realm {
                     self.data.center_chunk_pos.z + (self.data.chunk_rad + 1) * z_offset,
                 );
                 //卸载和加载顺序不能反
-                self.load_chunk(device, &new_chunk_pos);
-                self.unload_chunk(&old_chunk_pos);
+                if self.load_chunk(device, &new_chunk_pos) {
+                    self.unload_chunk(&old_chunk_pos);
+                } else {
+                    loaded_all = false;
+                }
             }
         }
         if x_offset != 0 {
@@ -1096,20 +1136,36 @@ impl Realm {
                     self.data.center_chunk_pos.x + (self.data.chunk_rad + 1) * x_offset,
                     self.data.center_chunk_pos.z + z,
                 );
-                self.load_chunk(device, &new_chunk_pos);
-                self.unload_chunk(&old_chunk_pos);
+                if self.load_chunk(device, &new_chunk_pos) {
+                    self.unload_chunk(&old_chunk_pos);
+                } else {
+                    loaded_all = false;
+                }
             }
+        }
+        if loaded_all {
+            self.data.center_chunk_pos.x += x_offset;
+            self.data.center_chunk_pos.z += z_offset;
         }
     }
 
-    fn reload_all_chunk(&mut self, new_coord: &ChunkCoord, device: &Device) {
-        RealmData::load_all_chunk(
-            self.data.chunk_rad,
-            *new_coord,
-            &mut self.data.chunk_map,
-            self.data.name,
-            self.data.seed,
-        );
+    pub fn reload_all_chunk(&mut self, new_coord: &ChunkCoord, device: &Device) {
+        // 请求所有需要的区块
+        for relative_x in -self.data.chunk_rad..=self.data.chunk_rad {
+            for relative_z in -self.data.chunk_rad..=self.data.chunk_rad {
+                let x = new_coord.x + relative_x;
+                let z = new_coord.z + relative_z;
+                let coord = ChunkCoord::new(x, z);
+
+                Self::init_chunk(
+                    &coord,
+                    &mut self.data.chunk_map,
+                    self.data.name,
+                    self.data.seed,
+                    &self.chunk_generator,
+                );
+            }
+        }
         self.render_res.instance_buffers =
             RenderResources::init_instance_buffers(device, &self.data);
     }

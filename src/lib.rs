@@ -18,6 +18,7 @@ use winit::{
 mod basic_config;
 mod benchmark;
 pub mod camera;
+mod chunk_generator;
 mod egui_tools;
 mod game_config;
 pub mod realm;
@@ -89,16 +90,13 @@ impl State {
             "Depth texture",
         );
 
-        let realm = realm::Realm::new(&basic_config.device);
+        let mut realm = realm::Realm::new(&basic_config.device);
+        realm.reload_all_chunk(&realm.data.center_chunk_pos.clone(), &basic_config.device);
 
         let game_config = game_config::GameConfig::new();
 
         //创建摄像机
-        let camera = camera::Camera::new(
-            (1.0, realm.get_first_none_empty_block(1.0, 1.0) as f32, 1.0),
-            cgmath::Deg(90.0),
-            cgmath::Deg(-45.0),
-        );
+        let camera = camera::Camera::new((1.0, 70.0, 1.0), cgmath::Deg(90.0), cgmath::Deg(-45.0));
         let projection = camera::Projection::new(
             basic_config.config.width,
             basic_config.config.height,
