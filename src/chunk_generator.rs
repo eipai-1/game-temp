@@ -1,14 +1,12 @@
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use crate::realm::{Block, BlockType, Chunk, ChunkCoord, ChunkData, BLOCK_EMPTY};
+use crate::realm::{
+    Block, BlockType, Chunk, ChunkCoord, ChunkData, BLOCK_EMPTY, BLOCK_NUM_PER_CHUNK, CHUNK_SIZE,
+};
 use noise::{NoiseFn, Perlin};
-
-const CHUNK_SIZE: i32 = 16;
-const CHUNK_HEIGHT: i32 = 256;
-const BLOCK_NUM_PER_CHUNK: usize = (CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT) as usize;
 
 pub struct ChunkGenerator {
     request_sender: Sender<ChunkRequest>,
@@ -29,8 +27,8 @@ pub struct ChunkResponse {
 
 impl ChunkGenerator {
     pub fn new(num_threads: usize) -> Self {
-        let (req_sender, req_receiver) = bounded(100);
-        let (resp_sender, resp_receiver) = bounded(100);
+        let (req_sender, req_receiver) = bounded(1000);
+        let (resp_sender, resp_receiver) = bounded(1000);
         let pending_chunks = Arc::new(Mutex::new(HashSet::new()));
 
         // 创建工作线程

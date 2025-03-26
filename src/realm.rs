@@ -12,8 +12,8 @@ use cgmath::*;
 use crate::chunk_generator::{self, ChunkGenerator};
 
 pub const TEXT_FRAC: f32 = 16.0 / 512.0;
-const WF_SIZE: f32 = 0.01;
-const WF_WIDTH: f32 = 0.04;
+pub const WF_SIZE: f32 = 0.01;
+pub const WF_WIDTH: f32 = 0.04;
 pub const VERTICES: &[Vertex] = &[
     //方块坐标：其中每条边都从原点向每个轴的正方向延伸一格
     //按照正-上-后-下-左-右的顺序
@@ -175,9 +175,9 @@ pub const WIREFRAME_INDCIES: &[u16] = &[
     8,  11, 27, 8,  27, 24,
 ];
 
-const CHUNK_SIZE: i32 = 16;
-const CHUNK_HEIGHT: i32 = 256;
-const BLOCK_NUM_PER_CHUNK: usize = (CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT) as usize;
+pub const CHUNK_SIZE: i32 = 16;
+pub const CHUNK_HEIGHT: i32 = 1024;
+pub const BLOCK_NUM_PER_CHUNK: usize = (CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT) as usize;
 
 const WORLD_FILE_DIR: &str = "./worlds";
 
@@ -517,7 +517,7 @@ impl RealmData {
 
         let name = "./data/worlds/default_name_1";
 
-        let chunk_rad: i32 = 1;
+        let chunk_rad: i32 = 5;
         if chunk_rad < 0 {
             panic!("invaild chunk_rad value:{}", chunk_rad);
         }
@@ -831,6 +831,7 @@ pub struct Realm {
     pub data: RealmData,
     pub render_res: RenderResources,
     chunk_generator: ChunkGenerator,
+    is_loading: bool,
 }
 impl Realm {
     pub fn new(device: &Device) -> Self {
@@ -838,12 +839,14 @@ impl Realm {
         data.load_all_instance();
 
         let render_res = RenderResources::new(device, &data);
-        let chunk_generator = ChunkGenerator::new(4);
+        let chunk_generator = ChunkGenerator::new(5);
 
+        let is_loading = false;
         Self {
             data,
             render_res,
             chunk_generator,
+            is_loading,
         }
     }
 
@@ -1074,13 +1077,14 @@ impl Realm {
                 &respose.coord,
                 &self.data.chunk_map.get(&respose.coord).unwrap().instance,
             );
-            println!("异步加载区块位置:{:?}", respose.coord);
+            println!("并行加载区块:{:?}", respose.coord);
         }
     }
 
     fn unload_chunk(&mut self, chunk_pos: &ChunkCoord) {
         self.render_res.instance_buffers.remove(chunk_pos);
         self.data.chunk_map.remove(chunk_pos);
+        println!("卸载区块:{:?}", chunk_pos);
     }
 
     pub fn update(&mut self, player_pos: &Point3<f32>, device: &Device) {
@@ -1093,21 +1097,87 @@ impl Realm {
         if dx == 0 && dz == 0 {
             return;
         }
+
         println!("chunk updated");
+
+        //加载新区块
         if dx >= -1 && dx <= 1 && dz >= -1 && dz <= 1 {
-            self.update_helper(dx, dz, device);
+            //已经进入加载时，检查加载是否完成，完成则更新中心位置
+            if self.is_loading {
+                if self.check_all_loaded(dx, dz) {
+                    self.is_loading = false;
+                    self.data.center_chunk_pos = new_coord;
+                }
+            } else {
+                self.is_loading = true;
+                self.update_helper(dx, dz, device);
+            }
+
+            //更新中心位置
+
+            //跨越了多个区块则重载所有区块
         } else {
             self.reload_all_chunk(&new_coord, device);
+            return;
         }
-        //记得更新中心位置
-        self.data.center_chunk_pos = new_coord;
+
+        //卸载不需要的区块
+        if self.data.chunk_map.contains_key(&ChunkCoord::new(
+            self.data.center_chunk_pos.x,
+            self.data.center_chunk_pos.z - self.data.chunk_rad - 2,
+        )) {
+            for x in -self.data.chunk_rad - 1..=self.data.chunk_rad + 1 {
+                let old_chunk_pos = ChunkCoord::new(
+                    self.data.center_chunk_pos.x + x,
+                    self.data.center_chunk_pos.z - (self.data.chunk_rad + 2),
+                );
+                self.unload_chunk(&old_chunk_pos);
+            }
+        }
+
+        if self.data.chunk_map.contains_key(&ChunkCoord::new(
+            self.data.center_chunk_pos.x,
+            self.data.center_chunk_pos.z + self.data.chunk_rad + 2,
+        )) {
+            for x in -self.data.chunk_rad - 1..=self.data.chunk_rad + 1 {
+                let old_chunk_pos = ChunkCoord::new(
+                    self.data.center_chunk_pos.x + x,
+                    self.data.center_chunk_pos.z + (self.data.chunk_rad + 2),
+                );
+                self.unload_chunk(&old_chunk_pos);
+            }
+        }
+
+        if self.data.chunk_map.contains_key(&ChunkCoord::new(
+            self.data.center_chunk_pos.x + self.data.chunk_rad + 2,
+            self.data.center_chunk_pos.z,
+        )) {
+            for z in -self.data.chunk_rad - 1..=self.data.chunk_rad + 1 {
+                let old_chunk_pos = ChunkCoord::new(
+                    self.data.center_chunk_pos.x + (self.data.chunk_rad + 2),
+                    self.data.center_chunk_pos.z + z,
+                );
+                self.unload_chunk(&old_chunk_pos);
+            }
+        }
+
+        if self.data.chunk_map.contains_key(&ChunkCoord::new(
+            self.data.center_chunk_pos.x - self.data.chunk_rad - 2,
+            self.data.center_chunk_pos.z,
+        )) {
+            for z in -self.data.chunk_rad - 1..=self.data.chunk_rad + 1 {
+                let old_chunk_pos = ChunkCoord::new(
+                    self.data.center_chunk_pos.x - (self.data.chunk_rad + 2),
+                    self.data.center_chunk_pos.z + z,
+                );
+                self.unload_chunk(&old_chunk_pos);
+            }
+        }
     }
 
     //两个offset都只有-1, 0, 1三个值
     //此时的区块中心还没更新
     fn update_helper(&mut self, x_offset: i32, z_offset: i32, device: &Device) {
-        let mut loaded_all = true;
-
         if z_offset != 0 {
             for x in -self.data.chunk_rad..=self.data.chunk_rad {
                 let old_chunk_pos = ChunkCoord::new(
@@ -1119,11 +1189,8 @@ impl Realm {
                     self.data.center_chunk_pos.z + (self.data.chunk_rad + 1) * z_offset,
                 );
                 //卸载和加载顺序不能反
-                if self.load_chunk(device, &new_chunk_pos) {
-                    self.unload_chunk(&old_chunk_pos);
-                } else {
-                    loaded_all = false;
-                }
+                self.load_chunk(device, &new_chunk_pos);
+                //self.unload_chunk(&old_chunk_pos);
             }
         }
         if x_offset != 0 {
@@ -1136,20 +1203,43 @@ impl Realm {
                     self.data.center_chunk_pos.x + (self.data.chunk_rad + 1) * x_offset,
                     self.data.center_chunk_pos.z + z,
                 );
-                if self.load_chunk(device, &new_chunk_pos) {
-                    self.unload_chunk(&old_chunk_pos);
-                } else {
-                    loaded_all = false;
-                }
+                self.load_chunk(device, &new_chunk_pos);
+                //self.unload_chunk(&old_chunk_pos);
             }
-        }
-        if loaded_all {
-            self.data.center_chunk_pos.x += x_offset;
-            self.data.center_chunk_pos.z += z_offset;
         }
     }
 
+    fn check_all_loaded(&self, x_offset: i32, z_offset: i32) -> bool {
+        if z_offset != 0 {
+            for x in -self.data.chunk_rad..=self.data.chunk_rad {
+                let new_chunk_pos = ChunkCoord::new(
+                    self.data.center_chunk_pos.x + x,
+                    self.data.center_chunk_pos.z + (self.data.chunk_rad + 1) * z_offset,
+                );
+                if !self.data.chunk_map.contains_key(&new_chunk_pos) {
+                    return false;
+                }
+            }
+        }
+        if x_offset != 0 {
+            for z in -self.data.chunk_rad..=self.data.chunk_rad {
+                let new_chunk_pos = ChunkCoord::new(
+                    self.data.center_chunk_pos.x + (self.data.chunk_rad + 1) * x_offset,
+                    self.data.center_chunk_pos.z + z,
+                );
+                if !self.data.chunk_map.contains_key(&new_chunk_pos) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     pub fn reload_all_chunk(&mut self, new_coord: &ChunkCoord, device: &Device) {
+        // 卸载所有区块
+        self.data.chunk_map.clear();
+        self.render_res.instance_buffers.clear();
+
         // 请求所有需要的区块
         for relative_x in -self.data.chunk_rad..=self.data.chunk_rad {
             for relative_z in -self.data.chunk_rad..=self.data.chunk_rad {

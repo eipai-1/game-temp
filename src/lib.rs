@@ -592,6 +592,15 @@ impl State {
                             self.camera.position.x, self.camera.position.y, self.camera.position.z
                         ));
                         ui.label(format!("chunk_map.len:{}", self.realm.data.chunk_map.len()));
+                        ui.label(format!(
+                            "center_chunk_pos:{:?}",
+                            self.realm.data.center_chunk_pos
+                        ));
+                        ui.label(format!("chunk counts:{}", self.realm.data.chunk_map.len()));
+                        ui.label(format!(
+                            "rendered chunk counts:{}",
+                            self.realm.render_res.instance_buffers.len(),
+                        ));
 
                         if let Some(selected_block) = self.camera_controller.selected_block {
                             ui.label(format!(
