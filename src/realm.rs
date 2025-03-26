@@ -517,7 +517,7 @@ impl RealmData {
 
         let name = "./data/worlds/default_name_1";
 
-        let chunk_rad: i32 = 5;
+        let chunk_rad: i32 = 10;
         if chunk_rad < 0 {
             panic!("invaild chunk_rad value:{}", chunk_rad);
         }
@@ -839,7 +839,7 @@ impl Realm {
         data.load_all_instance();
 
         let render_res = RenderResources::new(device, &data);
-        let chunk_generator = ChunkGenerator::new(5);
+        let chunk_generator = ChunkGenerator::new(4);
 
         let is_loading = false;
         Self {
@@ -1077,7 +1077,7 @@ impl Realm {
                 &respose.coord,
                 &self.data.chunk_map.get(&respose.coord).unwrap().instance,
             );
-            println!("并行加载区块:{:?}", respose.coord);
+            //println!("并行加载区块:{:?}", respose.coord);
         }
     }
 
@@ -1112,8 +1112,6 @@ impl Realm {
                 self.is_loading = true;
                 self.update_helper(dx, dz, device);
             }
-
-            //更新中心位置
 
             //跨越了多个区块则重载所有区块
         } else {

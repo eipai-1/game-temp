@@ -89,9 +89,11 @@ impl State {
             &basic_config.config,
             "Depth texture",
         );
-
         let mut realm = realm::Realm::new(&basic_config.device);
+        let reload_start = std::time::Instant::now();
         realm.reload_all_chunk(&realm.data.center_chunk_pos.clone(), &basic_config.device);
+        let reload_duration = reload_start.elapsed();
+        println!("reload_duration:{:?}", reload_duration);
 
         let game_config = game_config::GameConfig::new();
 
