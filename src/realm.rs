@@ -175,7 +175,7 @@ pub const WIREFRAME_INDCIES: &[u16] = &[
     8,  11, 27, 8,  27, 24,
 ];
 
-pub const CHUNK_SIZE: i32 = 16;
+pub const CHUNK_SIZE: i32 = 32;
 pub const CHUNK_HEIGHT: i32 = 1024;
 pub const BLOCK_NUM_PER_CHUNK: usize = (CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT) as usize;
 
@@ -517,7 +517,7 @@ impl RealmData {
 
         let name = "./data/worlds/default_name_1";
 
-        let chunk_rad: i32 = 10;
+        let chunk_rad: i32 = 4;
         if chunk_rad < 0 {
             panic!("invaild chunk_rad value:{}", chunk_rad);
         }
@@ -839,7 +839,7 @@ impl Realm {
         data.load_all_instance();
 
         let render_res = RenderResources::new(device, &data);
-        let chunk_generator = ChunkGenerator::new(4);
+        let chunk_generator = ChunkGenerator::new(1);
 
         let is_loading = false;
         Self {
@@ -1077,7 +1077,7 @@ impl Realm {
                 &respose.coord,
                 &self.data.chunk_map.get(&respose.coord).unwrap().instance,
             );
-            //println!("并行加载区块:{:?}", respose.coord);
+            println!("并行加载区块:{:?}", respose.coord);
         }
     }
 
@@ -1109,8 +1109,12 @@ impl Realm {
                     self.data.center_chunk_pos = new_coord;
                 }
             } else {
-                self.is_loading = true;
-                self.update_helper(dx, dz, device);
+                if !self.check_all_loaded(dx, dz) {
+                    self.is_loading = true;
+                    self.update_helper(dx, dz, device);
+                } else {
+                    self.data.center_chunk_pos = new_coord;
+                }
             }
 
             //跨越了多个区块则重载所有区块
