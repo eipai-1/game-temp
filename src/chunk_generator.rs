@@ -4,8 +4,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::realm::{
-    Block, BlockType, Chunk, ChunkCoord, ChunkData, BLOCK_EMPTY, BLOCK_NUM_PER_CHUNK, CHUNK_SIZE,
+    Block, BlockType, Chunk, ChunkCoord, ChunkData, Instance, RealmData, BLOCK_EMPTY,
+    BLOCK_NUM_PER_CHUNK, CHUNK_HEIGHT, CHUNK_SIZE,
 };
+
 use noise::{NoiseFn, Perlin};
 
 pub struct ChunkGenerator {
@@ -40,8 +42,9 @@ impl ChunkGenerator {
             thread::spawn(move || {
                 while let Ok(request) = req_receiver.recv() {
                     // 生成区块
-                    let chunk = Self::generate_terrain_internal(request.coord, request.seed);
+                    let mut chunk = Self::generate_terrain_internal(request.coord, request.seed);
 
+                    Self::create_instance(&mut chunk, &request.coord);
                     // 将生成的区块发送回去
                     let response = ChunkResponse {
                         coord: request.coord,
@@ -90,7 +93,34 @@ impl ChunkGenerator {
         self.pending_chunks.lock().unwrap().contains(coord)
     }
 
-    // 实际的地形生成逻辑，从Realm移植过来
+    fn create_instance(chunk: &mut Chunk, chunk_coord: &ChunkCoord) {
+        let mut index = 0u64;
+        for x in 0..CHUNK_SIZE {
+            for y in 0..CHUNK_HEIGHT {
+                for z in 0..CHUNK_SIZE {
+                    let block = chunk.get_block(x, y, z);
+                    if block.tp != BlockType::Empty {
+                        //let abs_coord = RealmData::relative_to_absolute(chunk_coord, x, y, z);
+                        if chunk.has_any_visible_face(x, y, z) {
+                            chunk.instance[index as usize] = Instance {
+                                position: RealmData::relative_to_absolute_array(
+                                    chunk_coord,
+                                    x,
+                                    y,
+                                    z,
+                                ),
+                                block_type: block.tp as u32,
+                            };
+                            chunk.coord_to_offset[RealmData::relative_to_index(x, y, z)] = index;
+                            chunk.offset_top += 1;
+                            index += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn generate_terrain_internal(chunk_coord: ChunkCoord, seed: u32) -> Chunk {
         let perlin = Perlin::new(seed);
 
