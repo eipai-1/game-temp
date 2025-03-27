@@ -1,8 +1,5 @@
-use crate::egui_tools::EguiRenderer;
-use egui_wgpu::ScreenDescriptor;
 use instant::Instant;
 use pollster::FutureExt;
-use realm::ChunkCoord;
 use std::{iter, sync::Arc};
 use util::DeviceExt;
 use wgpu::*;
@@ -19,10 +16,10 @@ mod basic_config;
 mod benchmark;
 pub mod camera;
 mod chunk_generator;
-mod egui_tools;
 mod game_config;
 pub mod realm;
 mod texture;
+mod ui;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -72,9 +69,6 @@ struct State {
 
     game_config: game_config::GameConfig,
     benchmark: benchmark::Benchmark,
-
-    egui_renderer: EguiRenderer,
-    scale_factor: f32,
 }
 
 impl State {
@@ -108,6 +102,11 @@ impl State {
         );
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera, &projection);
+
+        let dt: f64 = 0.001;
+        let last_render_time = instant::Instant::now();
+
+        let benchmark = benchmark::Benchmark::new();
 
         let camera_buffer =
             basic_config
@@ -252,7 +251,7 @@ impl State {
                     layout: Some(&render_pipeline_layout),
                     vertex: VertexState {
                         module: &shader,
-                        entry_point: "vs_main",
+                        entry_point: Some("vs_main"),
                         buffers: &[realm::Vertex::desc(), realm::Instance::desc()],
                         compilation_options: PipelineCompilationOptions::default(),
                     },
@@ -279,10 +278,13 @@ impl State {
                     },
                     fragment: Some(FragmentState {
                         module: &shader,
-                        entry_point: "fs_main",
+                        entry_point: Some("fs_main"),
                         targets: &[Some(ColorTargetState {
                             format: basic_config.config.format,
-                            blend: Some(BlendState::REPLACE),
+                            blend: Some(BlendState {
+                                alpha: BlendComponent::OVER,
+                                color: BlendComponent::OVER,
+                            }),
                             write_mask: ColorWrites::ALL,
                         })],
                         compilation_options: PipelineCompilationOptions::default(),
@@ -308,7 +310,7 @@ impl State {
                     layout: Some(&render_pipeline_layout),
                     vertex: VertexState {
                         module: &wf_shader,
-                        entry_point: "vs_main",
+                        entry_point: Some("vs_main"),
                         buffers: &[realm::WireframeVertex::desc()],
                         compilation_options: PipelineCompilationOptions::default(),
                     },
@@ -335,7 +337,7 @@ impl State {
                     },
                     fragment: Some(FragmentState {
                         module: &wf_shader,
-                        entry_point: "fs_main",
+                        entry_point: Some("fs_main"),
                         targets: &[Some(ColorTargetState {
                             format: basic_config.config.format,
                             blend: Some(BlendState::REPLACE),
@@ -348,20 +350,6 @@ impl State {
                 });
         //线框创建完成
 
-        let dt: f64 = 0.001;
-        let last_render_time = instant::Instant::now();
-
-        let benchmark = benchmark::Benchmark::new();
-
-        let egui_renderer = EguiRenderer::new(
-            &basic_config.device,
-            basic_config.config.format,
-            None,
-            1,
-            &*window,
-        );
-
-        let scale_factor: f32 = 1.0;
         Self {
             basic_config,
             window,
@@ -387,8 +375,6 @@ impl State {
             game_config,
 
             benchmark,
-            egui_renderer,
-            scale_factor,
         }
     }
 
@@ -454,7 +440,6 @@ impl State {
         );
 
         self.benchmark.update(self.dt);
-        self.egui_renderer.update(self.dt);
     }
 
     fn render(&mut self) -> Result<(), SurfaceError> {
@@ -498,25 +483,6 @@ impl State {
             render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(2, &self.realm.render_res.block_materials_bind_group, &[]);
-            //for block in self.realm.data.all_block.iter().skip(1) {
-            //    if self.realm.data.instances[block.block_type as usize].len() == 0 {
-            //        continue;
-            //    }
-            //    render_pass.set_vertex_buffer(
-            //        0,
-            //        self.realm.render_res.block_vertex_buffers[block.block_type as usize].slice(..),
-            //    );
-            //    render_pass.set_vertex_buffer(
-            //        1,
-            //        self.realm.render_res.instance_buffers[block.block_type as usize].slice(..),
-            //    );
-            //    render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
-            //    render_pass.draw_indexed(
-            //        0..realm::INDICES.len() as u32,
-            //        0,
-            //        0..self.realm.data.instances[block.block_type as usize].len() as _,
-            //    );
-            //}
             render_pass.set_vertex_buffer(0, self.realm.render_res.block_vertex_buffer.slice(..));
             render_pass.set_index_buffer(
                 self.realm.render_res.block_index_buffer.slice(..),
@@ -548,120 +514,10 @@ impl State {
             // 结束当前渲染通道，这里很重要！
         } // 这里render_pass会被drop，自动结束
 
-        // 现在调用debug_window，此时编码器没有被锁定
-        self.debug_window(&mut encoder, &output);
-
         self.basic_config.queue.submit(iter::once(encoder.finish()));
         output.present();
 
         Ok(())
-    }
-
-    fn debug_window(&mut self, encoder: &mut CommandEncoder, output: &SurfaceTexture) {
-        if self.game_config.is_debug_window_open {
-            let screen_descriptor = ScreenDescriptor {
-                size_in_pixels: [
-                    self.basic_config.config.width,
-                    self.basic_config.config.height,
-                ],
-                pixels_per_point: self.window.as_ref().scale_factor() as f32 * self.scale_factor,
-            };
-
-            let surface_view = output
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-
-            //let mut encoder =
-            //    self.basic_config
-            //        .device
-            //        .create_command_encoder(&CommandEncoderDescriptor {
-            //            label: Some("temp encoder"),
-            //        });
-
-            let window = self.window.as_ref();
-            {
-                self.egui_renderer.begin_frame(window);
-
-                egui::Window::new("Debug window")
-                    .resizable(true)
-                    .vscroll(true)
-                    .default_open(true)
-                    .default_size((200.0, 200.0))
-                    .show(self.egui_renderer.context(), |ui| {
-                        ui.label(format!("FPS:{}", self.egui_renderer.fps as u32));
-                        ui.label(format!(
-                            "xyz:{:.2},{:.2},{:.2}",
-                            self.camera.position.x, self.camera.position.y, self.camera.position.z
-                        ));
-                        ui.label(format!("chunk_map.len:{}", self.realm.data.chunk_map.len()));
-                        ui.label(format!(
-                            "center_chunk_pos:{:?}",
-                            self.realm.data.center_chunk_pos
-                        ));
-                        ui.label(format!("chunk counts:{}", self.realm.data.chunk_map.len()));
-                        ui.label(format!(
-                            "rendered chunk counts:{}",
-                            self.realm.render_res.instance_buffers.len(),
-                        ));
-
-                        if let Some(selected_block) = self.camera_controller.selected_block {
-                            ui.label(format!(
-                                "selected block:({},{},{}):({:?})",
-                                selected_block.x,
-                                selected_block.y,
-                                selected_block.z,
-                                self.realm.data.get_block(selected_block).tp
-                            ));
-                        }
-                        if let Some(pre_selected_block) = self.camera_controller.pre_selected_block
-                        {
-                            ui.label(format!(
-                                "pre_selected block:({},{},{})",
-                                pre_selected_block.x, pre_selected_block.y, pre_selected_block.z
-                            ));
-                        }
-
-                        if ui.button("debug print").clicked() {
-                            self.realm.debug_print();
-                        }
-
-                        if self.game_config.get_max_fps() == 0 {
-                            if ui.button("set max FPS to 60").clicked() {
-                                self.game_config.set_max_fps(60);
-                            }
-                        } else {
-                            if ui.button("set max FPS unlimited").clicked() {
-                                self.game_config.set_max_fps(0);
-                            }
-                        }
-
-                        if ui.button("start benchmark").clicked() {
-                            self.benchmark.start(&mut self.camera);
-                        }
-                        ui.separator();
-
-                        if self.benchmark.is_active {
-                            ui.label("Running benchmark");
-                        }
-
-                        if self.benchmark.has_output {
-                            ui.label(format!(
-                                "Benchmark Result: Avg FPS:{:.2}, sample_count:{} ",
-                                self.benchmark.avg_fps, self.benchmark.sample_count
-                            ));
-                        }
-                    });
-
-                self.egui_renderer.end_frame_and_draw(
-                    &self.basic_config.device,
-                    &self.basic_config.queue,
-                    encoder,
-                    window,
-                    &surface_view,
-                    screen_descriptor,
-                );
-            }
-        }
     }
 }
 
@@ -698,9 +554,6 @@ impl ApplicationHandler for App {
             //如果为真则代表为输入事件，且此方法会处理输入事件。此时则完成处理，不需要在继续处理
             //否则继续处理
             state.input(&event);
-            state
-                .egui_renderer
-                .handle_input(state.window.as_ref(), &event);
         }
 
         match event {
@@ -736,6 +589,11 @@ impl ApplicationHandler for App {
                         // This happens when the a frame takes too long to present
                         Err(SurfaceError::Timeout) => {
                             log::warn!("Surface timeout")
+                        }
+
+                        Err(SurfaceError::Other) => {
+                            log::error!("Surface error: Other");
+                            event_loop.exit();
                         }
                     }
 

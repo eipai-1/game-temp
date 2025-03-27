@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use egui_wgpu::wgpu::*;
+use wgpu::*;
 use winit::{dpi::PhysicalSize, window::Window};
 
 pub struct BasicConfig {
@@ -16,7 +16,7 @@ impl BasicConfig {
     pub async fn new(window: Arc<Window>) -> Self {
         let size = window.inner_size();
 
-        let instance = Instance::new(InstanceDescriptor {
+        let instance = Instance::new(&InstanceDescriptor {
             backends: Backends::PRIMARY,
             ..Default::default()
         });
