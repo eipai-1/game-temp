@@ -310,18 +310,11 @@ impl WireframeVertex {
         VertexBufferLayout {
             array_stride: std::mem::size_of::<WireframeVertex>() as BufferAddress,
             step_mode: VertexStepMode::Vertex,
-            attributes: &[
-                VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: VertexFormat::Float32x3,
-                },
-                VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as BufferAddress,
-                    shader_location: 1,
-                    format: VertexFormat::Float32x2,
-                },
-            ],
+            attributes: &[VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: VertexFormat::Float32x3,
+            }],
         }
     }
 }

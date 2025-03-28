@@ -473,36 +473,38 @@ impl State {
                 .create_command_encoder(&CommandEncoderDescriptor {
                     label: Some("Render Encoder"),
                 });
-        self.ui_text_renderer
-            .text_renderer
-            .prepare(
-                &self.basic_config.device,
-                &self.basic_config.queue,
-                &mut self.ui_text_renderer.font_system,
-                &mut self.ui_text_renderer.atlas,
-                &self.ui_text_renderer.view_port,
-                [glyphon::TextArea {
-                    buffer: &self.ui_text_renderer.text_buffer,
-                    left: 10.0,
-                    top: 10.0,
-                    scale: 1.0,
-                    bounds: glyphon::TextBounds {
-                        left: 0,
-                        top: 0,
-                        right: 600,
-                        bottom: 160,
-                    },
-                    default_color: glyphon::Color::rgb(255, 0, 0),
-                    custom_glyphs: &[],
-                }],
-                &mut self.ui_text_renderer.swash_cache,
-            )
-            .unwrap();
 
-        //这个大括号是必须的
+        // 准备文本渲染器
+        //self.ui_text_renderer
+        //    .text_renderer
+        //    .prepare(
+        //        &self.basic_config.device,
+        //        &self.basic_config.queue,
+        //        &mut self.ui_text_renderer.font_system,
+        //        &mut self.ui_text_renderer.atlas,
+        //        &self.ui_text_renderer.view_port,
+        //        [glyphon::TextArea {
+        //            buffer: &self.ui_text_renderer.text_buffer,
+        //            left: 10.0,
+        //            top: 10.0,
+        //            scale: 1.0,
+        //            bounds: glyphon::TextBounds {
+        //                left: 0,
+        //                top: 0,
+        //                right: 600,
+        //                bottom: 160,
+        //            },
+        //            default_color: glyphon::Color::rgb(255, 0, 0),
+        //            custom_glyphs: &[],
+        //        }],
+        //        &mut self.ui_text_renderer.swash_cache,
+        //    )
+        //    .unwrap();
+
+        // 第一个渲染通道 - 用于游戏场景
         {
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("Render Pass"),
+                label: Some("Game Scene Render Pass"),
                 color_attachments: &[Some(RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
@@ -532,6 +534,7 @@ impl State {
                 self.realm.render_res.block_index_buffer.slice(..),
                 IndexFormat::Uint16,
             );
+
             for (coord, chunk) in self.realm.data.chunk_map.iter() {
                 render_pass
                     .set_vertex_buffer(1, self.realm.render_res.instance_buffers[&coord].slice(..));
@@ -554,18 +557,42 @@ impl State {
                 );
                 render_pass.draw_indexed(0..realm::WIREFRAME_INDCIES.len() as u32, 0, 0..1);
             }
+        } // 第一个渲染通道结束
 
-            self.ui_text_renderer
-                .text_renderer
-                .render(
-                    &self.ui_text_renderer.atlas,
-                    &self.ui_text_renderer.view_port,
-                    &mut render_pass,
-                )
-                .unwrap();
+        //// 第二个渲染通道 - 仅用于UI文本渲染，不使用深度测试
+        //{
+        //    let mut ui_render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
+        //        label: Some("UI Text Render Pass"),
+        //        color_attachments: &[Some(RenderPassColorAttachment {
+        //            view: &view,
+        //            resolve_target: None,
+        //            ops: Operations {
+        //                load: LoadOp::Load, // 使用Load保留前面渲染的内容
+        //                store: StoreOp::Store,
+        //            },
+        //        })],
+        //        depth_stencil_attachment: None, // 不使用深度测试
+        //        occlusion_query_set: None,
+        //        timestamp_writes: None,
+        //    });
 
-            // 结束当前渲染通道，这里很重要！
-        } // 这里render_pass会被drop，自动结束
+        //    self.ui_text_renderer
+        //        .text_renderer
+        //        .render(
+        //            &self.ui_text_renderer.atlas,
+        //            &self.ui_text_renderer.view_port,
+        //            &mut ui_render_pass,
+        //        )
+        //        .unwrap();
+        //} // UI渲染通道结束
+        self.ui_text_renderer.draw_text(
+            &self.basic_config.device,
+            &self.basic_config.queue,
+            10.0,
+            10.0,
+            &mut encoder,
+            view,
+        );
 
         self.basic_config.queue.submit(iter::once(encoder.finish()));
         output.present();

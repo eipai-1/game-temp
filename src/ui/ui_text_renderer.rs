@@ -61,4 +61,60 @@ impl UITextRenderer {
             swash_cache,
         }
     }
+
+    pub fn draw_text(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        left: f32,
+        top: f32,
+        encoder: &mut wgpu::CommandEncoder,
+        view: wgpu::TextureView,
+    ) {
+        self.text_renderer
+            .prepare(
+                device,
+                queue,
+                &mut self.font_system,
+                &mut self.atlas,
+                &self.view_port,
+                [TextArea {
+                    buffer: &self.text_buffer,
+                    left,
+                    top,
+                    scale: 1.0,
+                    bounds: TextBounds {
+                        left: 0,
+                        top: 0,
+                        right: 600,
+                        bottom: 160,
+                    },
+                    default_color: Color::rgb(255, 0, 0),
+                    custom_glyphs: &[],
+                }],
+                &mut self.swash_cache,
+            )
+            .unwrap();
+
+        {
+            let mut ui_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("UI Text Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load, // 使用Load保留前面渲染的内容
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None, // 不使用深度测试
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+
+            self.text_renderer
+                .render(&self.atlas, &self.view_port, &mut ui_render_pass)
+                .unwrap();
+        } // UI渲染通道结束
+    }
 }
