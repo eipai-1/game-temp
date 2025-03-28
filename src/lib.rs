@@ -1,3 +1,4 @@
+use glyphon::Resolution;
 use instant::Instant;
 use pollster::FutureExt;
 use std::{iter, sync::Arc};
@@ -69,6 +70,8 @@ struct State {
 
     game_config: game_config::GameConfig,
     benchmark: benchmark::Benchmark,
+
+    ui_text_renderer: ui::ui_text_renderer::UITextRenderer,
 }
 
 impl State {
@@ -107,6 +110,14 @@ impl State {
         let last_render_time = instant::Instant::now();
 
         let benchmark = benchmark::Benchmark::new();
+
+        let ui_text_renderer = ui::ui_text_renderer::UITextRenderer::new(
+            &basic_config.device,
+            &basic_config.queue,
+            TextureFormat::Bgra8UnormSrgb,
+            1.0,
+            window.inner_size(),
+        );
 
         let camera_buffer =
             basic_config
@@ -375,6 +386,7 @@ impl State {
             game_config,
 
             benchmark,
+            ui_text_renderer,
         }
     }
 
@@ -393,6 +405,13 @@ impl State {
                 &self.basic_config.device,
                 &self.basic_config.config,
                 "depth_texture",
+            );
+            self.ui_text_renderer.view_port.update(
+                &self.basic_config.queue,
+                Resolution {
+                    width: new_size.width,
+                    height: new_size.height,
+                },
             );
         }
     }
@@ -454,6 +473,31 @@ impl State {
                 .create_command_encoder(&CommandEncoderDescriptor {
                     label: Some("Render Encoder"),
                 });
+        self.ui_text_renderer
+            .text_renderer
+            .prepare(
+                &self.basic_config.device,
+                &self.basic_config.queue,
+                &mut self.ui_text_renderer.font_system,
+                &mut self.ui_text_renderer.atlas,
+                &self.ui_text_renderer.view_port,
+                [glyphon::TextArea {
+                    buffer: &self.ui_text_renderer.text_buffer,
+                    left: 10.0,
+                    top: 10.0,
+                    scale: 1.0,
+                    bounds: glyphon::TextBounds {
+                        left: 0,
+                        top: 0,
+                        right: 600,
+                        bottom: 160,
+                    },
+                    default_color: glyphon::Color::rgb(255, 0, 0),
+                    custom_glyphs: &[],
+                }],
+                &mut self.ui_text_renderer.swash_cache,
+            )
+            .unwrap();
 
         //这个大括号是必须的
         {
@@ -510,6 +554,15 @@ impl State {
                 );
                 render_pass.draw_indexed(0..realm::WIREFRAME_INDCIES.len() as u32, 0, 0..1);
             }
+
+            self.ui_text_renderer
+                .text_renderer
+                .render(
+                    &self.ui_text_renderer.atlas,
+                    &self.ui_text_renderer.view_port,
+                    &mut render_pass,
+                )
+                .unwrap();
 
             // 结束当前渲染通道，这里很重要！
         } // 这里render_pass会被drop，自动结束
