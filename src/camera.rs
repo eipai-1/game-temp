@@ -89,6 +89,7 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
 
 pub struct CameraController {
     pub is_fov: bool,
+    pub is_cursor_visible: bool,
     pub center_x: u32,
     pub center_y: u32,
     pub speed: f32,
@@ -109,6 +110,7 @@ impl CameraController {
     pub fn new(speed: f32, center_x: u32, center_y: u32) -> Self {
         Self {
             is_fov: true,
+            is_cursor_visible: false,
             center_x,
             center_y,
             speed,

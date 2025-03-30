@@ -1,5 +1,5 @@
-use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
-use std::collections::{HashMap, HashSet};
+use crossbeam_channel::{bounded, Receiver, Sender};
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -203,7 +203,7 @@ impl ChunkGenerator {
                             for i in -1i32..=1 {
                                 for j in -1i32..=1 {
                                     let y = height + tree_height;
-                                    if (i.abs() == 1 && j.abs() == 1) {
+                                    if i.abs() == 1 && j.abs() == 1 {
                                         continue;
                                     }
                                     chunk.set_block(

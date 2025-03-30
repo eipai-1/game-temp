@@ -42,7 +42,7 @@ impl UITextRenderer {
         );
         text_buffer.set_text(
             &mut font_system,
-            "Hello world!你好世界！",
+            "Hello world👋!你好世界！🦁",
             Attrs::new(),
             Shaping::Advanced,
         );
@@ -69,7 +69,7 @@ impl UITextRenderer {
         left: f32,
         top: f32,
         encoder: &mut wgpu::CommandEncoder,
-        view: wgpu::TextureView,
+        view: &wgpu::TextureView,
     ) {
         self.text_renderer
             .prepare(
@@ -89,7 +89,7 @@ impl UITextRenderer {
                         right: 600,
                         bottom: 160,
                     },
-                    default_color: Color::rgb(255, 0, 0),
+                    default_color: Color::rgb(255, 255, 255),
                     custom_glyphs: &[],
                 }],
                 &mut self.swash_cache,
@@ -100,7 +100,7 @@ impl UITextRenderer {
             let mut ui_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("UI Text Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load, // 使用Load保留前面渲染的内容
@@ -116,5 +116,12 @@ impl UITextRenderer {
                 .render(&self.atlas, &self.view_port, &mut ui_render_pass)
                 .unwrap();
         } // UI渲染通道结束
+    }
+
+    pub fn set_text(&mut self, text: &str) {
+        self.text_buffer
+            .set_text(&mut self.font_system, text, Attrs::new(), Shaping::Advanced);
+        self.text_buffer
+            .shape_until_scroll(&mut self.font_system, false);
     }
 }

@@ -1,5 +1,10 @@
 use std::time::Duration;
 
+pub enum GameState {
+    StartMenu,
+    Running,
+}
+
 /*
 GameConfig
 适用场景：存放游戏启动参数、核心逻辑配置（如世界大小、物理参数等）。
@@ -9,6 +14,7 @@ GameConfig
 pub struct GameConfig {
     //最大帧数，为0时表示无限制
     //使用spin_sleeper库 精度应该满足要求
+    pub game_state: GameState,
     max_fps: u32,
     pub sleeper: spin_sleep::SpinSleeper,
     frame_duration: Duration,
@@ -27,6 +33,7 @@ impl GameConfig {
         }
         let player_speed = 5.0;
         let is_debug_window_open = true;
+        let game_state = GameState::StartMenu;
 
         Self {
             max_fps,
@@ -34,6 +41,7 @@ impl GameConfig {
             frame_duration,
             player_speed,
             is_debug_window_open,
+            game_state,
         }
     }
 

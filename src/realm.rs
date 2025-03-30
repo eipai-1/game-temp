@@ -530,7 +530,7 @@ impl RealmData {
 
         let name = "./data/worlds/default_name_1";
 
-        let chunk_rad: i32 = 4;
+        let chunk_rad: i32 = 2;
         if chunk_rad < 0 {
             panic!("invaild chunk_rad value:{}", chunk_rad);
         }
@@ -857,7 +857,7 @@ impl Realm {
         data.load_all_instance();
 
         let render_res = RenderResources::new(device, &data);
-        let chunk_generator = ChunkGenerator::new(1);
+        let chunk_generator = ChunkGenerator::new(3);
 
         let is_loading = false;
         Self {

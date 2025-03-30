@@ -17,7 +17,9 @@ mod basic_config;
 mod benchmark;
 pub mod camera;
 mod chunk_generator;
+mod entity;
 mod game_config;
+mod item;
 pub mod realm;
 mod texture;
 mod ui;
@@ -71,7 +73,8 @@ struct State {
     game_config: game_config::GameConfig,
     benchmark: benchmark::Benchmark,
 
-    ui_text_renderer: ui::ui_text_renderer::UITextRenderer,
+    //ui_text_renderer: ui::ui_text_renderer::UITextRenderer,
+    ui: ui::UI,
 }
 
 impl State {
@@ -111,13 +114,7 @@ impl State {
 
         let benchmark = benchmark::Benchmark::new();
 
-        let ui_text_renderer = ui::ui_text_renderer::UITextRenderer::new(
-            &basic_config.device,
-            &basic_config.queue,
-            TextureFormat::Bgra8UnormSrgb,
-            1.0,
-            window.inner_size(),
-        );
+        window.set_cursor_visible(false);
 
         let camera_buffer =
             basic_config
@@ -292,10 +289,7 @@ impl State {
                         entry_point: Some("fs_main"),
                         targets: &[Some(ColorTargetState {
                             format: basic_config.config.format,
-                            blend: Some(BlendState {
-                                alpha: BlendComponent::OVER,
-                                color: BlendComponent::OVER,
-                            }),
+                            blend: Some(BlendState::REPLACE),
                             write_mask: ColorWrites::ALL,
                         })],
                         compilation_options: PipelineCompilationOptions::default(),
@@ -360,7 +354,15 @@ impl State {
                     cache: None,
                 });
         //线框创建完成
-
+        let ui = ui::UI::new(
+            &basic_config.device,
+            &basic_config.queue,
+            basic_config.config.format,
+            1.0,
+            window.inner_size(),
+            &realm.render_res.block_materials_bind_group_layout,
+            &texture_bind_group_layout,
+        );
         Self {
             basic_config,
             window,
@@ -386,7 +388,7 @@ impl State {
             game_config,
 
             benchmark,
-            ui_text_renderer,
+            ui,
         }
     }
 
@@ -406,13 +408,14 @@ impl State {
                 &self.basic_config.config,
                 "depth_texture",
             );
-            self.ui_text_renderer.view_port.update(
-                &self.basic_config.queue,
-                Resolution {
-                    width: new_size.width,
-                    height: new_size.height,
-                },
-            );
+            //self.ui_text_renderer.view_port.update(
+            //    &self.basic_config.queue,
+            //    Resolution {
+            //        width: new_size.width,
+            //        height: new_size.height,
+            //    },
+            //);
+            self.ui.resize(&self.basic_config.queue, new_size);
         }
     }
 
@@ -425,6 +428,15 @@ impl State {
                     self.camera_controller.center_y,
                 ))
                 .unwrap();
+            if self.camera_controller.is_cursor_visible {
+                self.window.as_ref().set_cursor_visible(false);
+                self.camera_controller.is_cursor_visible = false;
+            }
+        } else {
+            if !self.camera_controller.is_cursor_visible {
+                self.window.as_ref().set_cursor_visible(true);
+                self.camera_controller.is_cursor_visible = true;
+            }
         }
         self.camera_controller.process_events(
             event,
@@ -473,33 +485,6 @@ impl State {
                 .create_command_encoder(&CommandEncoderDescriptor {
                     label: Some("Render Encoder"),
                 });
-
-        // 准备文本渲染器
-        //self.ui_text_renderer
-        //    .text_renderer
-        //    .prepare(
-        //        &self.basic_config.device,
-        //        &self.basic_config.queue,
-        //        &mut self.ui_text_renderer.font_system,
-        //        &mut self.ui_text_renderer.atlas,
-        //        &self.ui_text_renderer.view_port,
-        //        [glyphon::TextArea {
-        //            buffer: &self.ui_text_renderer.text_buffer,
-        //            left: 10.0,
-        //            top: 10.0,
-        //            scale: 1.0,
-        //            bounds: glyphon::TextBounds {
-        //                left: 0,
-        //                top: 0,
-        //                right: 600,
-        //                bottom: 160,
-        //            },
-        //            default_color: glyphon::Color::rgb(255, 0, 0),
-        //            custom_glyphs: &[],
-        //        }],
-        //        &mut self.ui_text_renderer.swash_cache,
-        //    )
-        //    .unwrap();
 
         // 第一个渲染通道 - 用于游戏场景
         {
@@ -559,40 +544,46 @@ impl State {
             }
         } // 第一个渲染通道结束
 
-        //// 第二个渲染通道 - 仅用于UI文本渲染，不使用深度测试
-        //{
-        //    let mut ui_render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-        //        label: Some("UI Text Render Pass"),
-        //        color_attachments: &[Some(RenderPassColorAttachment {
-        //            view: &view,
-        //            resolve_target: None,
-        //            ops: Operations {
-        //                load: LoadOp::Load, // 使用Load保留前面渲染的内容
-        //                store: StoreOp::Store,
-        //            },
-        //        })],
-        //        depth_stencil_attachment: None, // 不使用深度测试
-        //        occlusion_query_set: None,
-        //        timestamp_writes: None,
-        //    });
+        //self.ui
+        //    .ui_text_renderer
+        //    .set_text(format!("{:#?}", self.camera.calc_matrix()).as_str());
+        self.ui.ui_text_renderer.set_text("测试文本");
 
-        //    self.ui_text_renderer
-        //        .text_renderer
-        //        .render(
-        //            &self.ui_text_renderer.atlas,
-        //            &self.ui_text_renderer.view_port,
-        //            &mut ui_render_pass,
-        //        )
-        //        .unwrap();
-        //} // UI渲染通道结束
-        self.ui_text_renderer.draw_text(
+        self.ui.draw_ui(
             &self.basic_config.device,
             &self.basic_config.queue,
-            10.0,
-            10.0,
             &mut encoder,
-            view,
+            &view,
+            &self.diffuse_bind_group,
+            &self.realm.render_res.block_materials_bind_group,
+            100.0,
+            100.0,
         );
+
+        self.ui.ui_text_renderer.draw_text(
+            &self.basic_config.device,
+            &self.basic_config.queue,
+            100.0,
+            100.0,
+            &mut encoder,
+            &view,
+        );
+
+        //self.ui_text_renderer.set_text(
+        //    format!(
+        //        "x: {:.2}, y: {:.2}, z: {:.2}",
+        //        self.camera.position.x, self.camera.position.y, self.camera.position.z
+        //    )
+        //    .as_str(),
+        //);
+        //self.ui_text_renderer.draw_text(
+        //    &self.basic_config.device,
+        //    &self.basic_config.queue,
+        //    10.0,
+        //    10.0,
+        //    &mut encoder,
+        //    &view,
+        //);
 
         self.basic_config.queue.submit(iter::once(encoder.finish()));
         output.present();
