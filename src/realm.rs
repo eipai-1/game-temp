@@ -211,9 +211,12 @@ pub enum BlockType {
 
     //白桦树叶
     BirchLeaves = 6,
+
+    //白桦木板
+    BirchPlank = 7,
 }
 //添加方块之后记得方块数量
-pub const BLOCK_NUM: usize = 7;
+pub const BLOCK_NUM: usize = 8;
 
 impl BlockType {
     pub fn is_transparent(&self) -> bool {
@@ -237,9 +240,10 @@ pub enum BlockMaterials {
     BirchLogTop = 5,
     BirchLog = 6,
     BirchLeaves = 7,
+    BirchPlank = 8,
 }
 // 添加材质后记得修改材质数量
-pub const BLOCK_MATERIALS_NUM: u32 = 8;
+pub const BLOCK_MATERIALS_NUM: u32 = 9;
 
 #[allow(unused)]
 #[derive(Debug, Default, Clone, Copy)]
@@ -1603,6 +1607,20 @@ fn create_all_block() -> Vec<BlockInfo> {
         BlockType::BirchLeaves,
     );
     all_block[brich_leaves.block_type as usize] = brich_leaves;
+
+    let birch_plank = BlockInfo::new(
+        "birch_plank",
+        [
+            BirchPlank as u32,
+            BirchPlank as u32,
+            BirchPlank as u32,
+            BirchPlank as u32,
+            BirchPlank as u32,
+            BirchPlank as u32,
+        ],
+        BlockType::BirchPlank,
+    );
+    all_block[birch_plank.block_type as usize] = birch_plank;
 
     all_block
 }

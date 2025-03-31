@@ -218,6 +218,7 @@ fn materials_enum_to_string(i: u32) -> &'static str {
         BirchLog => "birch_log",
         BirchLeaves => "birch_leaves",
         BirchLogTop => "birch_log_top",
+        BirchPlank => "birch_planks",
         Empty => "",
     }
 }

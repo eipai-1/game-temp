@@ -1,11 +1,17 @@
+use crate::entity::Player;
 use glyphon::{Color, TextArea, TextBounds};
 use std::vec;
-
+use wgpu::core::device::queue;
+use wgpu::naga::Block;
 use wgpu::{util::DeviceExt, *};
+use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
+use winit::keyboard::{KeyCode, PhysicalKey};
 
-use crate::realm;
+use crate::{item, realm};
+use inventory_renderer::{InventoryRenderer, SLOTS_PER_COLUMN};
 
-mod block_render;
+mod block_renderer;
+pub mod inventory_renderer;
 pub mod ui_text_renderer;
 
 const CURSOR_HALF_SIZE: f32 = 12.0;
@@ -26,15 +32,15 @@ struct UIUniform {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct Instance {
+struct UIInstance {
     position: [f32; 2],
     _padding: [f32; 2],
 }
 
-impl Instance {
+impl UIInstance {
     fn desc() -> VertexBufferLayout<'static> {
         VertexBufferLayout {
-            array_stride: std::mem::size_of::<Instance>() as BufferAddress,
+            array_stride: std::mem::size_of::<UIInstance>() as BufferAddress,
             step_mode: VertexStepMode::Instance,
             attributes: &[VertexAttribute {
                 format: VertexFormat::Float32x2,
@@ -43,10 +49,15 @@ impl Instance {
             }],
         }
     }
+    pub fn new(x: f32, y: f32) -> Self {
+        Self {
+            position: [x, y],
+            _padding: [0.0, 0.0],
+        }
+    }
 }
 
 const CURSOR_INDEX: &[u16] = &[0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7];
-const INVENTORY_INDEX: &[u16] = &[0, 1, 2, 0, 2, 3];
 
 impl UIVertex {
     pub fn desc() -> VertexBufferLayout<'static> {
@@ -69,199 +80,10 @@ impl UIVertex {
     }
 }
 
-struct InventoryRenderer {
-    vertices: Vec<UIVertex>,
-    instances: Vec<Instance>,
-    vertex_buffer: Buffer,
-    instance_buffer: Buffer,
-    index_buffer: Buffer,
-    render_pipeline: RenderPipeline,
-}
-
-impl InventoryRenderer {
-    fn new(
-        device: &Device,
-        format: TextureFormat,
-        screen_size_uniform_bind_group_layout: &BindGroupLayout,
-    ) -> Self {
-        let mut vertices = Vec::new();
-        let slot_size = 64.0;
-        let left = 0.0;
-        let right = slot_size;
-        let top = 0.0;
-        let bottom = slot_size;
-        vertices.push(UIVertex {
-            position: [left, top],
-            color: [0.2, 0.4, 0.3, 0.7],
-        });
-        vertices.push(UIVertex {
-            position: [right, top],
-            color: [0.2, 0.4, 0.3, 0.7],
-        });
-        vertices.push(UIVertex {
-            position: [right, bottom],
-            color: [0.2, 0.4, 0.3, 0.7],
-        });
-        vertices.push(UIVertex {
-            position: [left, bottom],
-            color: [0.2, 0.4, 0.3, 0.7],
-        });
-
-        let inventory_slot_spacing = 10.0f32;
-
-        //距离屏幕左边的距离
-        let inventory_left = 30.0f32;
-        //距离屏幕上边的距离
-        let inventory_top = 30.0f32;
-
-        let mut instances: Vec<Instance> = Vec::new();
-        instances.push(Instance {
-            position: [inventory_left, inventory_top],
-            _padding: [0.0, 0.0],
-        });
-        instances.push(Instance {
-            position: [
-                inventory_left + slot_size + inventory_slot_spacing,
-                inventory_top,
-            ],
-            _padding: [0.0, 0.0],
-        });
-        instances.push(Instance {
-            position: [
-                inventory_left + 2.0 * (slot_size + inventory_slot_spacing),
-                inventory_top,
-            ],
-            _padding: [0.0, 0.0],
-        });
-        instances.push(Instance {
-            position: [
-                inventory_left + 3.0 * (slot_size + inventory_slot_spacing),
-                inventory_top,
-            ],
-            _padding: [0.0, 0.0],
-        });
-        instances.push(Instance {
-            position: [
-                inventory_left + 4.0 * (slot_size + inventory_slot_spacing),
-                inventory_top,
-            ],
-            _padding: [0.0, 0.0],
-        });
-        instances.push(Instance {
-            position: [
-                inventory_left + 5.0 * (slot_size + inventory_slot_spacing),
-                inventory_top,
-            ],
-            _padding: [0.0, 0.0],
-        });
-        instances.push(Instance {
-            position: [
-                inventory_left + 6.0 * (slot_size + inventory_slot_spacing),
-                inventory_top,
-            ],
-            _padding: [0.0, 0.0],
-        });
-        instances.push(Instance {
-            position: [
-                inventory_left + 7.0 * (slot_size + inventory_slot_spacing),
-                inventory_top,
-            ],
-            _padding: [0.0, 0.0],
-        });
-        instances.push(Instance {
-            position: [
-                inventory_left + 8.0 * (slot_size + inventory_slot_spacing),
-                inventory_top,
-            ],
-            _padding: [0.0, 0.0],
-        });
-        instances.push(Instance {
-            position: [
-                inventory_left + 9.0 * (slot_size + inventory_slot_spacing),
-                inventory_top,
-            ],
-            _padding: [0.0, 0.0],
-        });
-
-        let vertex_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
-            label: Some("Inventory Vertex Buffer"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: BufferUsages::VERTEX,
-        });
-
-        let instance_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
-            label: Some("Inventory Instance Buffer"),
-            contents: bytemuck::cast_slice(&instances),
-            usage: BufferUsages::VERTEX,
-        });
-
-        let index_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
-            label: Some("Inventory Index Buffer"),
-            contents: bytemuck::cast_slice(&INVENTORY_INDEX),
-            usage: BufferUsages::INDEX,
-        });
-
-        let shader = device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("Inventory Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("inventory_shader.wgsl").into()),
-        });
-
-        let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("UI Pipeline Layout"),
-            bind_group_layouts: &[&screen_size_uniform_bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("UI render pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[UIVertex::desc(), Instance::desc()],
-                compilation_options: PipelineCompilationOptions::default(),
-            },
-            primitive: PrimitiveState {
-                topology: PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: FrontFace::Cw,
-                cull_mode: None,
-                unclipped_depth: false,
-                polygon_mode: PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            fragment: Some(FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(ColorTargetState {
-                    format: format,
-                    blend: Some(BlendState::ALPHA_BLENDING),
-                    write_mask: ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default(),
-            }),
-            multiview: None,
-            cache: None,
-        });
-
-        InventoryRenderer {
-            vertex_buffer,
-            instance_buffer,
-            index_buffer,
-            instances,
-            vertices,
-            render_pipeline,
-        }
-    }
-}
-
 pub struct UI {
+    pub is_invenory_open: bool,
+    pub is_hotbar_open: bool,
+
     cursor_vertex_buffer: Buffer,
     cursor_index_buffer: Buffer,
     cursor_vertices: Vec<UIVertex>,
@@ -269,9 +91,11 @@ pub struct UI {
     screen_size_uniform_buffer: Buffer,
     screen_size_uniform_bind_group: BindGroup,
     instance_buffer: Buffer,
-    instances: Vec<Instance>,
+    instances: Vec<UIInstance>,
     inventory_renderer: InventoryRenderer,
-    block_renderer: block_render::BlockRenderer,
+    block_renderer: block_renderer::BlockRenderer,
+
+    cursor_position: cgmath::Point2<f32>,
 }
 
 impl UI {
@@ -281,6 +105,7 @@ impl UI {
         format: wgpu::TextureFormat,
         scale_factor: f32,
         physical_size: winit::dpi::PhysicalSize<u32>,
+        player: &Player,
         block_materials_bind_group_layout: &BindGroupLayout,
         texture_bind_group_layout: &BindGroupLayout,
     ) -> Self {
@@ -292,7 +117,7 @@ impl UI {
             physical_size,
         );
 
-        let instances = vec![Instance {
+        let instances = vec![UIInstance {
             position: [0.0, 0.0],
             _padding: [0.0, 0.0],
         }];
@@ -348,16 +173,36 @@ impl UI {
             usage: BufferUsages::INDEX,
         });
 
-        let inventory_renderer =
-            InventoryRenderer::new(device, format, &screen_size_uniform_bind_group_layout);
-
-        let block_renderer = block_render::BlockRenderer::new(
+        let block_renderer = block_renderer::BlockRenderer::new(
             device,
             format,
+            player,
+            physical_size,
             &screen_size_uniform_bind_group_layout,
             block_materials_bind_group_layout,
             texture_bind_group_layout,
         );
+
+        let inventory_renderer = InventoryRenderer::new(
+            device,
+            format,
+            &screen_size_uniform_bind_group_layout,
+            physical_size,
+            block_renderer,
+        );
+
+        let block_renderer = block_renderer::BlockRenderer::new(
+            device,
+            format,
+            player,
+            physical_size,
+            &screen_size_uniform_bind_group_layout,
+            block_materials_bind_group_layout,
+            texture_bind_group_layout,
+        );
+
+        let is_hotbar_open = true;
+        let is_invenory_open = false;
 
         Self {
             cursor_vertex_buffer,
@@ -370,6 +215,9 @@ impl UI {
             instance_buffer,
             instances,
             block_renderer,
+            is_hotbar_open,
+            is_invenory_open,
+            cursor_position: cgmath::Point2::new(0.0, 0.0),
         }
     }
 
@@ -445,12 +293,18 @@ impl UI {
         top: f32,
         encoder: &mut CommandEncoder,
         view: &wgpu::TextureView,
+        render_pass: &mut RenderPass,
     ) {
         self.ui_text_renderer
-            .draw_text(device, queue, left, top, encoder, view);
+            .draw_text(device, queue, left, top, render_pass);
     }
 
-    pub fn resize(&mut self, queue: &Queue, physical_size: winit::dpi::PhysicalSize<u32>) {
+    pub fn resize(
+        &mut self,
+        queue: &Queue,
+        player: &Player,
+        physical_size: winit::dpi::PhysicalSize<u32>,
+    ) {
         let ui_uniform = UIUniform {
             screen_size: [physical_size.width as f32, physical_size.height as f32],
         };
@@ -467,6 +321,11 @@ impl UI {
             0,
             bytemuck::cast_slice(&[ui_uniform]),
         );
+
+        self.inventory_renderer.resize(queue, physical_size);
+        self.inventory_renderer
+            .block_renderer
+            .resize(queue, player, physical_size);
     }
 
     pub fn draw_ui(
@@ -495,67 +354,52 @@ impl UI {
             timestamp_writes: None,
         });
 
-        //self.ui_text_renderer
-        //    .text_renderer
-        //    .prepare(
-        //        device,
-        //        queue,
-        //        &mut self.ui_text_renderer.font_system,
-        //        &mut self.ui_text_renderer.atlas,
-        //        &self.ui_text_renderer.view_port,
-        //        [TextArea {
-        //            buffer: &self.ui_text_renderer.text_buffer,
-        //            left,
-        //            top,
-        //            scale: 1.0,
-        //            bounds: TextBounds {
-        //                left: 0,
-        //                top: 0,
-        //                right: 600,
-        //                bottom: 160,
-        //            },
-        //            default_color: Color::rgb(255, 0, 255),
-        //            custom_glyphs: &[],
-        //        }],
-        //        &mut self.ui_text_renderer.swash_cache,
-        //    )
-        //    .unwrap();
-
         render_pass.set_pipeline(&self.inventory_renderer.render_pipeline);
-        render_pass.set_bind_group(0, &self.screen_size_uniform_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.cursor_vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-        render_pass.set_index_buffer(self.cursor_index_buffer.slice(..), IndexFormat::Uint16);
-        render_pass.draw_indexed(0..CURSOR_INDEX.len() as _, 0, 0..1);
 
-        render_pass.set_bind_group(0, &self.screen_size_uniform_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.inventory_renderer.vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.inventory_renderer.instance_buffer.slice(..));
-        render_pass.set_index_buffer(
-            self.inventory_renderer.index_buffer.slice(..),
-            IndexFormat::Uint16,
-        );
-        render_pass.draw_indexed(
-            0..INVENTORY_INDEX.len() as _,
-            0,
-            0..self.inventory_renderer.instances.len() as _,
-        );
+        self.draw_cursor(&mut render_pass);
 
-        render_pass.set_pipeline(&self.block_renderer.render_pipeline);
-        render_pass.set_bind_group(0, &self.screen_size_uniform_bind_group, &[]);
-        render_pass.set_bind_group(1, diffuse_bind_group, &[]);
-        render_pass.set_bind_group(2, block_materials_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.block_renderer.vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.block_renderer.instance_buffer.slice(..));
-        render_pass.set_index_buffer(
-            self.block_renderer.index_buffer.slice(..),
-            IndexFormat::Uint16,
-        );
-        render_pass.draw_indexed(
-            0..realm::INDICES.len() as _,
-            0,
-            0..self.block_renderer.instances.len() as _,
-        );
+        if self.is_invenory_open {
+            self.inventory_renderer.draw_inventory(&mut render_pass);
+            self.inventory_renderer.block_renderer.draw_all_item(
+                &mut render_pass,
+                &self.screen_size_uniform_bind_group,
+                diffuse_bind_group,
+                block_materials_bind_group,
+            );
+            self.inventory_renderer.block_renderer.draw_iv_hb(
+                &mut render_pass,
+                &self.screen_size_uniform_bind_group,
+                diffuse_bind_group,
+                block_materials_bind_group,
+            );
+            if self.inventory_renderer.is_dragging {
+                self.inventory_renderer.block_renderer.draw_dragging(
+                    &mut render_pass,
+                    &self.screen_size_uniform_bind_group,
+                    diffuse_bind_group,
+                    block_materials_bind_group,
+                    self.inventory_renderer
+                        .dragging_instance_buffer
+                        .as_ref()
+                        .unwrap(),
+                );
+            }
+        }
+        if self.is_hotbar_open {
+            self.inventory_renderer
+                .draw_hotbar(&self.screen_size_uniform_bind_group, &mut render_pass);
+            self.inventory_renderer.block_renderer.draw_hb(
+                &mut render_pass,
+                &self.screen_size_uniform_bind_group,
+                diffuse_bind_group,
+                block_materials_bind_group,
+            );
+        }
+
+        self.ui_text_renderer
+            .draw_text(device, queue, left, top, &mut render_pass);
+        //self.inventory_renderer
+        //    .draw_hotbar(&self.screen_size_uniform_bind_group, &mut render_pass);
 
         //self.ui_text_renderer
         //    .text_renderer
@@ -565,5 +409,154 @@ impl UI {
         //        &mut render_pass,
         //    )
         //    .unwrap();
+    }
+
+    fn draw_cursor(&self, render_pass: &mut RenderPass) {
+        render_pass.set_bind_group(0, &self.screen_size_uniform_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.cursor_vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+        render_pass.set_index_buffer(self.cursor_index_buffer.slice(..), IndexFormat::Uint16);
+        render_pass.draw_indexed(0..CURSOR_INDEX.len() as _, 0, 0..1);
+    }
+
+    pub fn process_events(
+        &mut self,
+        event: &winit::event::WindowEvent,
+        is_fov: bool,
+        queue: &Queue,
+        player: &mut Player,
+        physical_size: winit::dpi::PhysicalSize<u32>,
+        device: &wgpu::Device,
+        all_block: &Vec<realm::BlockInfo>,
+    ) -> bool {
+        match event {
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        state,
+                        physical_key: PhysicalKey::Code(keycode),
+                        repeat: false,
+                        ..
+                    },
+                ..
+            } => {
+                let is_pressed = *state == winit::event::ElementState::Pressed;
+                match keycode {
+                    KeyCode::KeyE => {
+                        if is_fov {
+                            self.is_invenory_open = false;
+                            self.is_hotbar_open = true;
+                        } else {
+                            self.is_invenory_open = true;
+                            self.is_hotbar_open = false;
+                        }
+                        return true;
+                    }
+                    KeyCode::Escape => {
+                        if self.is_invenory_open {
+                            self.is_invenory_open = false;
+                            self.is_hotbar_open = true;
+                        }
+                        return true;
+                    }
+                    _ => {}
+                }
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                if *state == winit::event::ElementState::Pressed {
+                    match button {
+                        MouseButton::Left => {
+                            if self.is_invenory_open {
+                                let (x, y) = inventory_renderer::get_selected_slot(
+                                    self.cursor_position.x,
+                                    self.cursor_position.y,
+                                    physical_size,
+                                );
+                                self.ui_text_renderer
+                                    .set_text(format!("{},{}", x, y).as_str());
+
+                                if y >= inventory_renderer::SLOTS_PER_COLUMN {
+                                    return true;
+                                }
+                                let tp = player.all_item_inventory[y as usize][x as usize]
+                                    .item_type
+                                    .get_type();
+                                if tp != realm::BlockType::Empty as u32 {
+                                    self.inventory_renderer.is_dragging = true;
+                                    self.inventory_renderer.create_dragging_instance(
+                                        tp,
+                                        self.cursor_position.x,
+                                        self.cursor_position.y,
+                                        device,
+                                    );
+                                }
+                            }
+                            return true;
+                        }
+                        _ => {}
+                    }
+                } else {
+                    if self.inventory_renderer.is_dragging {
+                        let (x, y) = inventory_renderer::get_selected_slot(
+                            self.cursor_position.x,
+                            self.cursor_position.y,
+                            physical_size,
+                        );
+                        if x >= inventory_renderer::SLOTS_PER_ROW || y != SLOTS_PER_COLUMN {
+                            self.inventory_renderer.is_dragging = false;
+                            return true;
+                        }
+                        let selected_tp = self
+                            .inventory_renderer
+                            .dragging_instance
+                            .unwrap()
+                            .block_type;
+
+                        let new_item =
+                            item::Item::new(item::ItemType::Block(all_block[selected_tp as usize]));
+                        //println!("set hotbar[{}] = {:?}", y, new_item);
+                        player.hotbar[x as usize] = new_item;
+                        self.inventory_renderer.is_dragging = false;
+                        self.inventory_renderer
+                            .block_renderer
+                            .recreate_hb_instance_buffer(queue, player);
+                        self.inventory_renderer.block_renderer.update_iv_hb(
+                            player,
+                            physical_size,
+                            queue,
+                        );
+                    }
+                    return true;
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => match delta {
+                winit::event::MouseScrollDelta::LineDelta(_, y) => {
+                    if *y > 0.0 {
+                        self.inventory_renderer.update_shb(-1, queue);
+                        player.update_selected_hotbar(-1);
+                    } else {
+                        self.inventory_renderer.update_shb(1, queue);
+                        player.update_selected_hotbar(1);
+                    }
+                    return true;
+                }
+                _ => {}
+            },
+            WindowEvent::CursorMoved { position, .. } => {
+                self.cursor_position.x = position.x as f32;
+                self.cursor_position.y = position.y as f32;
+                if self.inventory_renderer.is_dragging {
+                    self.inventory_renderer.update_dragging_instance(
+                        self.cursor_position.x,
+                        self.cursor_position.y,
+                        queue,
+                    );
+                }
+                //self.ui_text_renderer
+                //    .set_text(format!("{:?}", self.cursor_position).as_str());
+            }
+            _ => {}
+        }
+        false
     }
 }

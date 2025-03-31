@@ -74,6 +74,7 @@ struct State {
     benchmark: benchmark::Benchmark,
 
     //ui_text_renderer: ui::ui_text_renderer::UITextRenderer,
+    player: entity::Player,
     ui: ui::UI,
 }
 
@@ -354,12 +355,15 @@ impl State {
                     cache: None,
                 });
         //线框创建完成
+        let player = entity::Player::new(&realm.data.all_block);
+
         let ui = ui::UI::new(
             &basic_config.device,
             &basic_config.queue,
             basic_config.config.format,
             1.0,
             window.inner_size(),
+            &player,
             &realm.render_res.block_materials_bind_group_layout,
             &texture_bind_group_layout,
         );
@@ -388,6 +392,7 @@ impl State {
             game_config,
 
             benchmark,
+            player,
             ui,
         }
     }
@@ -408,14 +413,15 @@ impl State {
                 &self.basic_config.config,
                 "depth_texture",
             );
-            //self.ui_text_renderer.view_port.update(
-            //    &self.basic_config.queue,
-            //    Resolution {
-            //        width: new_size.width,
-            //        height: new_size.height,
-            //    },
-            //);
-            self.ui.resize(&self.basic_config.queue, new_size);
+            self.ui.ui_text_renderer.view_port.update(
+                &self.basic_config.queue,
+                Resolution {
+                    width: new_size.width,
+                    height: new_size.height,
+                },
+            );
+            self.ui
+                .resize(&self.basic_config.queue, &self.player, new_size);
         }
     }
 
@@ -438,13 +444,33 @@ impl State {
                 self.camera_controller.is_cursor_visible = true;
             }
         }
-        self.camera_controller.process_events(
+        let mut is_consumed = false;
+        if self.camera_controller.process_events(
             event,
             &mut self.camera,
             &mut self.realm,
             &self.basic_config.queue,
             &mut self.game_config,
-        )
+            &self.player,
+        ) {
+            is_consumed = true;
+        }
+
+        if !is_consumed {
+            if self.ui.process_events(
+                event,
+                self.camera_controller.is_fov,
+                &self.basic_config.queue,
+                &mut self.player,
+                self.basic_config.size,
+                &self.basic_config.device,
+                &self.realm.data.all_block,
+            ) {
+                is_consumed = true;
+            }
+        }
+
+        is_consumed
     }
 
     fn update(&mut self) {
@@ -544,10 +570,7 @@ impl State {
             }
         } // 第一个渲染通道结束
 
-        //self.ui
-        //    .ui_text_renderer
-        //    .set_text(format!("{:#?}", self.camera.calc_matrix()).as_str());
-        self.ui.ui_text_renderer.set_text("测试文本");
+        //self.ui.ui_text_renderer.set_text("测试文本");
 
         self.ui.draw_ui(
             &self.basic_config.device,
@@ -556,34 +579,9 @@ impl State {
             &view,
             &self.diffuse_bind_group,
             &self.realm.render_res.block_materials_bind_group,
-            100.0,
-            100.0,
+            0.0,
+            0.0,
         );
-
-        self.ui.ui_text_renderer.draw_text(
-            &self.basic_config.device,
-            &self.basic_config.queue,
-            100.0,
-            100.0,
-            &mut encoder,
-            &view,
-        );
-
-        //self.ui_text_renderer.set_text(
-        //    format!(
-        //        "x: {:.2}, y: {:.2}, z: {:.2}",
-        //        self.camera.position.x, self.camera.position.y, self.camera.position.z
-        //    )
-        //    .as_str(),
-        //);
-        //self.ui_text_renderer.draw_text(
-        //    &self.basic_config.device,
-        //    &self.basic_config.queue,
-        //    10.0,
-        //    10.0,
-        //    &mut encoder,
-        //    &view,
-        //);
 
         self.basic_config.queue.submit(iter::once(encoder.finish()));
         output.present();
@@ -624,20 +622,13 @@ impl ApplicationHandler for App {
         if let Some(state) = self.state.as_mut() {
             //如果为真则代表为输入事件，且此方法会处理输入事件。此时则完成处理，不需要在继续处理
             //否则继续处理
-            state.input(&event);
+            if state.input(&event) {
+                return;
+            }
         }
 
         match event {
-            WindowEvent::CloseRequested
-            | WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        state: ElementState::Pressed,
-                        physical_key: PhysicalKey::Code(KeyCode::Escape),
-                        ..
-                    },
-                ..
-            } => event_loop.exit(),
+            WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => {
                 if let Some(state) = self.state.as_mut() {
                     let now = Instant::now();

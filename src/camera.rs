@@ -1,12 +1,14 @@
 // --
+use crate::entity::Player;
+use crate::item;
+use crate::realm::BlockType;
+use crate::{game_config, realm};
 use cgmath::*;
 use std::f32::consts::FRAC_PI_2;
 use winit::{
     event::*,
     keyboard::{KeyCode, PhysicalKey},
 };
-
-use crate::{game_config, realm};
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.0001;
 
@@ -128,6 +130,8 @@ impl CameraController {
         }
     }
 
+    //返回是否消费事件 即是否将时件传递给下一个处理器
+    //如果返回true，则事件被消费，后续处理器不再处理该事件
     pub fn process_events(
         &mut self,
         event: &WindowEvent,
@@ -135,6 +139,7 @@ impl CameraController {
         realm: &mut realm::Realm,
         queue: &wgpu::Queue,
         game_config: &mut game_config::GameConfig,
+        player: &Player,
     ) -> bool {
         match event {
             WindowEvent::KeyboardInput {
@@ -177,7 +182,15 @@ impl CameraController {
                         if is_pressed {
                             self.is_fov = !self.is_fov;
                         }
-                        true
+                        false
+                    }
+                    KeyCode::Escape => {
+                        if is_pressed {
+                            if !self.is_fov {
+                                self.is_fov = true;
+                            }
+                        }
+                        false
                     }
                     KeyCode::F5 => {
                         if is_pressed {
@@ -188,10 +201,10 @@ impl CameraController {
                     _ => false,
                 }
             }
-            WindowEvent::Focused(true) => {
-                self.is_fov = true;
-                true
-            }
+            //WindowEvent::Focused(true) => {
+            //    self.is_fov = true;
+            //    true
+            //}
             WindowEvent::Focused(false) => {
                 self.is_fov = false;
                 true
@@ -217,13 +230,18 @@ impl CameraController {
             } => {
                 if self.is_fov {
                     if let Some(pre_selected_block) = self.pre_selected_block {
-                        realm.place_block(
-                            pre_selected_block,
-                            realm::Block {
-                                tp: realm::BlockType::Stone,
-                            },
-                            queue,
-                        );
+                        if let item::ItemType::Block(block) =
+                            player.hotbar[player.slected_hotbar as usize].item_type
+                        {
+                            realm.place_block(
+                                pre_selected_block,
+                                realm::Block {
+                                    tp: block.block_type,
+                                },
+                                queue,
+                            );
+                        }
+
                         return true;
                     }
                 }

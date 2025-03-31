@@ -42,7 +42,8 @@ impl UITextRenderer {
         );
         text_buffer.set_text(
             &mut font_system,
-            "Hello world👋!你好世界！🦁",
+            "",
+            //"Hello world👋!你好世界！🦁",
             Attrs::new(),
             Shaping::Advanced,
         );
@@ -68,8 +69,7 @@ impl UITextRenderer {
         queue: &wgpu::Queue,
         left: f32,
         top: f32,
-        encoder: &mut wgpu::CommandEncoder,
-        view: &wgpu::TextureView,
+        render_pass: &mut wgpu::RenderPass,
     ) {
         self.text_renderer
             .prepare(
@@ -89,33 +89,15 @@ impl UITextRenderer {
                         right: 600,
                         bottom: 160,
                     },
-                    default_color: Color::rgb(255, 255, 255),
+                    default_color: Color::rgb(255, 0, 0),
                     custom_glyphs: &[],
                 }],
                 &mut self.swash_cache,
             )
             .unwrap();
-
-        {
-            let mut ui_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("UI Text Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load, // 使用Load保留前面渲染的内容
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None, // 不使用深度测试
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-
-            self.text_renderer
-                .render(&self.atlas, &self.view_port, &mut ui_render_pass)
-                .unwrap();
-        } // UI渲染通道结束
+        self.text_renderer
+            .render(&self.atlas, &self.view_port, render_pass)
+            .unwrap();
     }
 
     pub fn set_text(&mut self, text: &str) {
