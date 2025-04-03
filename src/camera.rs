@@ -197,6 +197,13 @@ impl CameraController {
                         }
                         true
                     }
+                    KeyCode::KeyC => {
+                        if is_pressed {
+                            camera.position.x -= 2.0;
+                            camera.position.z -= 2.0;
+                        }
+                        true
+                    }
                     _ => false,
                 }
             }

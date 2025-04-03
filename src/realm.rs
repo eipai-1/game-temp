@@ -1126,7 +1126,7 @@ impl Realm {
                 //    self.data.center_chunk_pos.z - self.data.chunk_rad * z_offset,
                 //);
                 let new_chunk_pos = ChunkCoord::new(
-                    self.data.center_chunk_pos.x + x,
+                    self.data.center_chunk_pos.x + x + x_offset,
                     self.data.center_chunk_pos.z + (self.data.chunk_rad + 1) * z_offset,
                 );
                 //卸载和加载顺序不能反
@@ -1142,7 +1142,7 @@ impl Realm {
                 //);
                 let new_chunk_pos = ChunkCoord::new(
                     self.data.center_chunk_pos.x + (self.data.chunk_rad + 1) * x_offset,
-                    self.data.center_chunk_pos.z + z,
+                    self.data.center_chunk_pos.z + z + z_offset,
                 );
                 self.load_chunk(device, &new_chunk_pos);
                 //self.unload_chunk(&old_chunk_pos);
@@ -1237,7 +1237,7 @@ impl Realm {
         if z_offset != 0 {
             for x in -self.data.chunk_rad..=self.data.chunk_rad {
                 let new_chunk_pos = ChunkCoord::new(
-                    self.data.center_chunk_pos.x + x,
+                    self.data.center_chunk_pos.x + x + x_offset,
                     self.data.center_chunk_pos.z + (self.data.chunk_rad + 1) * z_offset,
                 );
                 if !self.data.chunk_map.contains_key(&new_chunk_pos) {
@@ -1249,7 +1249,7 @@ impl Realm {
             for z in -self.data.chunk_rad..=self.data.chunk_rad {
                 let new_chunk_pos = ChunkCoord::new(
                     self.data.center_chunk_pos.x + (self.data.chunk_rad + 1) * x_offset,
-                    self.data.center_chunk_pos.z + z,
+                    self.data.center_chunk_pos.z + z + z_offset,
                 );
                 if !self.data.chunk_map.contains_key(&new_chunk_pos) {
                     return false;
