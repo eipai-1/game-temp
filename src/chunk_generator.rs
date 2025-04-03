@@ -42,6 +42,7 @@ impl ChunkGenerator {
             thread::spawn(move || {
                 while let Ok(request) = req_receiver.recv() {
                     // 生成区块
+                    thread::sleep(std::time::Duration::from_millis(2000)); // 模拟生成时间
                     let mut chunk = Self::generate_terrain_internal(request.coord, request.seed);
 
                     Self::create_instance(&mut chunk, &request.coord);

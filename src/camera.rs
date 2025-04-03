@@ -1,7 +1,6 @@
 // --
 use crate::entity::Player;
 use crate::item;
-use crate::realm::BlockType;
 use crate::{game_config, realm};
 use cgmath::*;
 use std::f32::consts::FRAC_PI_2;

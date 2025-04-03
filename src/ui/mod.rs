@@ -83,6 +83,7 @@ impl UIVertex {
 pub struct UI {
     pub is_invenory_open: bool,
     pub is_hotbar_open: bool,
+    pub is_debug_info_open: bool,
 
     cursor_vertex_buffer: Buffer,
     cursor_index_buffer: Buffer,
@@ -109,13 +110,15 @@ impl UI {
         block_materials_bind_group_layout: &BindGroupLayout,
         texture_bind_group_layout: &BindGroupLayout,
     ) -> Self {
-        let ui_text_renderer = ui_text_renderer::UITextRenderer::new(
+        let mut ui_text_renderer = ui_text_renderer::UITextRenderer::new(
             device,
             queue,
             format,
             scale_factor,
             physical_size,
         );
+
+        ui_text_renderer.generate_debug_info();
 
         let instances = vec![UIInstance {
             position: [0.0, 0.0],
@@ -203,6 +206,7 @@ impl UI {
 
         let is_hotbar_open = true;
         let is_invenory_open = false;
+        let is_debug_info_open = false;
 
         Self {
             cursor_vertex_buffer,
@@ -217,6 +221,7 @@ impl UI {
             block_renderer,
             is_hotbar_open,
             is_invenory_open,
+            is_debug_info_open,
             cursor_position: cgmath::Point2::new(0.0, 0.0),
         }
     }
@@ -296,7 +301,7 @@ impl UI {
         render_pass: &mut RenderPass,
     ) {
         self.ui_text_renderer
-            .draw_text(device, queue, left, top, render_pass);
+            .draw_text(device, queue, render_pass, self.is_debug_info_open);
     }
 
     pub fn resize(
@@ -397,18 +402,11 @@ impl UI {
         }
 
         self.ui_text_renderer
-            .draw_text(device, queue, left, top, &mut render_pass);
-        //self.inventory_renderer
-        //    .draw_hotbar(&self.screen_size_uniform_bind_group, &mut render_pass);
+            .draw_text(device, queue, &mut render_pass, self.is_debug_info_open);
+    }
 
-        //self.ui_text_renderer
-        //    .text_renderer
-        //    .render(
-        //        &self.ui_text_renderer.atlas,
-        //        &self.ui_text_renderer.view_port,
-        //        &mut render_pass,
-        //    )
-        //    .unwrap();
+    pub fn update_ui(&mut self, position: cgmath::Point3<f32>, dt: f64, realm: &realm::Realm) {
+        self.ui_text_renderer.update_debug_info(position, dt, realm);
     }
 
     fn draw_cursor(&self, render_pass: &mut RenderPass) {
@@ -459,6 +457,12 @@ impl UI {
                         }
                         return true;
                     }
+                    KeyCode::F3 => {
+                        if is_pressed {
+                            self.is_debug_info_open = !self.is_debug_info_open;
+                            return true;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -472,8 +476,8 @@ impl UI {
                                     self.cursor_position.y,
                                     physical_size,
                                 );
-                                self.ui_text_renderer
-                                    .set_text(format!("{},{}", x, y).as_str());
+                                //self.ui_text_renderer
+                                //    .set_text(format!("{},{}", x, y).as_str());
 
                                 if y >= inventory_renderer::SLOTS_PER_COLUMN {
                                     return true;

@@ -26,12 +26,12 @@ impl GameConfig {
     pub fn new() -> Self {
         let sleeper = spin_sleep::SpinSleeper::default();
 
-        let max_fps = 0;
+        let max_fps = 60;
         let mut frame_duration = Duration::from_secs_f32(1.0);
         if max_fps != 0 {
             frame_duration = Duration::from_secs_f64(1.0 / max_fps as f64);
         }
-        let player_speed = 5.0;
+        let player_speed = 18.0;
         let is_debug_window_open = true;
         let game_state = GameState::StartMenu;
 

@@ -1,7 +1,6 @@
-use crate::realm::{self, BlockType};
+use crate::realm::{self};
 use crate::ui::block_renderer::BlockRenderer;
 use crate::ui::{UIInstance, UIVertex};
-use bytemuck::bytes_of;
 use wgpu::{util::DeviceExt, *};
 
 pub const HOTBAR_INDEX: &[u16] = &[0, 1, 2, 0, 2, 3];

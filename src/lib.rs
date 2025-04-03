@@ -94,7 +94,7 @@ impl State {
         let reload_start = std::time::Instant::now();
         realm.reload_all_chunk(&realm.data.center_chunk_pos.clone(), &basic_config.device);
         let reload_duration = reload_start.elapsed();
-        println!("reload_duration:{:?}", reload_duration);
+        //println!("reload_duration:{:?}", reload_duration);
 
         let game_config = game_config::GameConfig::new();
 
@@ -483,7 +483,7 @@ impl State {
             .update_view_proj(&self.camera, &self.projection);
 
         self.realm
-            .update(&self.camera.position, &self.basic_config.device);
+            .update(&self.camera.position, &self.basic_config.device, self.dt);
 
         self.basic_config.queue.write_buffer(
             &self.camera_buffer,
@@ -497,6 +497,8 @@ impl State {
         );
 
         self.benchmark.update(self.dt);
+        self.ui
+            .update_ui(self.camera.position, self.dt, &self.realm);
     }
 
     fn render(&mut self) -> Result<(), SurfaceError> {
