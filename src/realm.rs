@@ -175,9 +175,9 @@ pub const WIREFRAME_INDCIES: &[u16] = &[
     8,  11, 27, 8,  27, 24,
 ];
 
-pub const INIT_CHUNK_RAD: i32 = 1;
+pub const INIT_CHUNK_RAD: i32 = 4;
 pub const CHUNK_SIZE: i32 = 16;
-pub const CHUNK_HEIGHT: i32 = 1024;
+pub const CHUNK_HEIGHT: i32 = 5000;
 pub const BLOCK_NUM_PER_CHUNK: usize = (CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT) as usize;
 
 const WORLD_FILE_DIR: &str = "./worlds";
@@ -215,9 +215,11 @@ pub enum BlockType {
 
     //白桦木板
     BirchPlank = 7,
+
+    TestBlock = 8,
 }
 //添加方块之后记得方块数量
-pub const BLOCK_NUM: usize = 8;
+pub const BLOCK_NUM: usize = 9;
 
 impl BlockType {
     pub fn is_transparent(&self) -> bool {
@@ -242,9 +244,10 @@ pub enum BlockMaterials {
     BirchLog = 6,
     BirchLeaves = 7,
     BirchPlank = 8,
+    TestBlock = 9,
 }
 // 添加材质后记得修改材质数量
-pub const BLOCK_MATERIALS_NUM: u32 = 9;
+pub const BLOCK_MATERIALS_NUM: u32 = 10;
 
 #[allow(unused)]
 #[derive(Debug, Default, Clone, Copy)]
@@ -1744,6 +1747,20 @@ fn create_all_block() -> Vec<BlockInfo> {
         BlockType::BirchPlank,
     );
     all_block[birch_plank.block_type as usize] = birch_plank;
+
+    let test_block = BlockInfo::new(
+        "test_block",
+        [
+            TestBlock as u32,
+            TestBlock as u32,
+            TestBlock as u32,
+            TestBlock as u32,
+            TestBlock as u32,
+            TestBlock as u32,
+        ],
+        BlockType::TestBlock,
+    );
+    all_block[test_block.block_type as usize] = test_block;
 
     all_block
 }

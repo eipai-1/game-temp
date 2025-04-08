@@ -31,7 +31,7 @@ impl GameConfig {
         if max_fps != 0 {
             frame_duration = Duration::from_secs_f64(1.0 / max_fps as f64);
         }
-        let player_speed = 18.0;
+        let player_speed = 5.0;
         let is_debug_window_open = true;
         let game_state = GameState::StartMenu;
 

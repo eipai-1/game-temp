@@ -10,6 +10,7 @@ use crate::realm::{
 
 use noise::{NoiseFn, Perlin};
 
+#[allow(unused)]
 pub struct ChunkGenerator {
     request_sender: Sender<ChunkRequest>,
     response_receiver: Receiver<ChunkResponse>,

@@ -46,6 +46,7 @@ impl Benchmark {
         }
     }
 
+    #[allow(unused)]
     pub fn start(&mut self, camera: &mut camera::Camera) {
         if self.is_active == false {
             self.reset();
@@ -54,6 +55,7 @@ impl Benchmark {
         }
     }
 
+    #[allow(unused)]
     fn reset(&mut self) {
         self.is_active = false;
         self.has_output = false;

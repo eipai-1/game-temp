@@ -93,7 +93,7 @@ impl State {
         let mut realm = realm::Realm::new(&basic_config.device);
         let reload_start = std::time::Instant::now();
         realm.reload_all_chunk(&realm.data.center_chunk_pos.clone(), &basic_config.device);
-        let reload_duration = reload_start.elapsed();
+        //let reload_duration = reload_start.elapsed();
         //println!("reload_duration:{:?}", reload_duration);
 
         let game_config = game_config::GameConfig::new();
@@ -354,8 +354,15 @@ impl State {
                     multiview: None,
                     cache: None,
                 });
+
         //线框创建完成
-        let player = entity::Player::new(&realm.data.all_block);
+        let player = entity::Player::new(
+            &realm.data.all_block,
+            &basic_config.device,
+            &basic_config.queue,
+            &camera_bind_group_layout,
+            basic_config.config.format,
+        );
 
         let ui = ui::UI::new(
             &basic_config.device,
@@ -570,6 +577,9 @@ impl State {
                 );
                 render_pass.draw_indexed(0..realm::WIREFRAME_INDCIES.len() as u32, 0, 0..1);
             }
+
+            //self.player
+            //    .draw_entities(&mut render_pass, &self.camera_bind_group);
         } // 第一个渲染通道结束
 
         //self.ui.ui_text_renderer.set_text("测试文本");
