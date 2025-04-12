@@ -66,6 +66,7 @@ impl EntityInstance {
     }
 }
 
+#[allow(unused)]
 pub struct Player {
     pub slected_hotbar: i32,
     pub hotbar: Vec<Item>,
@@ -351,7 +352,7 @@ impl Player {
     }
 
     fn create_indices() -> Vec<u16> {
-        let mut temp: Vec<u16> = Vec::new();
+        let temp: Vec<u16> = Vec::new();
         let mut indcies: Vec<u16> = vec![
             0, 1, 2, 0, 2, 3, /* 之后每个加4就行 */
             4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11, 12, 13, 14, 12, 14, 15, 16, 17, 18, 16, 18, 19,

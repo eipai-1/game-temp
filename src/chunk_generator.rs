@@ -96,7 +96,7 @@ impl ChunkGenerator {
     }
 
     fn create_instance(chunk: &mut Chunk, chunk_coord: &ChunkCoord) {
-        let mut index = 0u64;
+        let mut index = 0u32;
         for x in 0..CHUNK_SIZE {
             for y in 0..CHUNK_HEIGHT {
                 for z in 0..CHUNK_SIZE {

@@ -15,12 +15,12 @@ use winit::{
 
 mod basic_config;
 mod benchmark;
-pub mod camera;
+mod camera;
 mod chunk_generator;
 mod entity;
 mod game_config;
 mod item;
-pub mod realm;
+mod realm;
 mod texture;
 mod ui;
 

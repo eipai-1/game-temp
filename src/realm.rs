@@ -175,9 +175,9 @@ pub const WIREFRAME_INDCIES: &[u16] = &[
     8,  11, 27, 8,  27, 24,
 ];
 
-pub const INIT_CHUNK_RAD: i32 = 4;
+pub const INIT_CHUNK_RAD: i32 = 7;
 pub const CHUNK_SIZE: i32 = 16;
-pub const CHUNK_HEIGHT: i32 = 5000;
+pub const CHUNK_HEIGHT: i32 = 512;
 pub const BLOCK_NUM_PER_CHUNK: usize = (CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT) as usize;
 
 const WORLD_FILE_DIR: &str = "./worlds";
@@ -415,18 +415,18 @@ impl Material {
 #[derive(Debug, Clone)]
 pub struct Chunk {
     data: ChunkData,
-    pub coord_to_offset: Vec<u64>,
+    pub coord_to_offset: Vec<u32>,
     pub instance: Vec<Instance>,
     //is_dirty: AtomicBool,
 
     //为第一个空位置
-    pub offset_top: u64,
+    pub offset_top: u32,
 }
 
 impl Chunk {
     pub fn new(data: ChunkData) -> Self {
         //let is_dirty = AtomicBool::new(false);
-        let coord_to_offset = vec![u64::MAX; BLOCK_NUM_PER_CHUNK];
+        let coord_to_offset = vec![u32::MAX; BLOCK_NUM_PER_CHUNK];
         let instance: Vec<Instance> = vec![Instance::default(); BLOCK_NUM_PER_CHUNK];
         let offset_top = 0;
         Self {
@@ -652,7 +652,7 @@ impl RealmData {
 
     //仅为创建可见方块创建实例
     pub fn create_instance(&mut self, chunk_coord: &ChunkCoord) {
-        let mut index = 0u64;
+        let mut index = 0u32;
         for x in 0..CHUNK_SIZE {
             for y in 0..CHUNK_HEIGHT {
                 for z in 0..CHUNK_SIZE {
@@ -920,6 +920,7 @@ impl Realm {
         chunk_map.insert(*chunk_coord, chunk);
     }
 
+    #[allow(unused)]
     pub fn get_first_none_empty_block(&self, x: f32, z: f32) -> i32 {
         let mut pos = Point3::new(x as i32, 0, z as i32);
 
@@ -1316,7 +1317,7 @@ impl Realm {
         false
     }
 
-    fn get_offset(&self, abs_coord: Point3<i32>) -> Option<u64> {
+    fn get_offset(&self, abs_coord: Point3<i32>) -> Option<u32> {
         let chunk_coord = get_chunk_coord(abs_coord.x, abs_coord.z);
         let local_coord = get_local_coord(abs_coord);
         if let Some(chunk) = self.data.chunk_map.get(&chunk_coord) {
@@ -1345,7 +1346,7 @@ impl Realm {
             if let Some(offset) = self.get_offset(Point3::new(*x, *y, *z)) {
                 //如果offset为MAX，则说明该方块不在缓冲区内，即不可见
                 //又如果方块为非空，则讲此方块插入缓冲区
-                if offset == u64::MAX {
+                if offset == u32::MAX {
                     if !self
                         .data
                         .get_block(Point3::new(*x, *y, *z))
@@ -1411,7 +1412,7 @@ impl Realm {
                     block_offset.x,
                     block_offset.y,
                     block_offset.z,
-                )] = u64::MAX;
+                )] = u32::MAX;
 
                 /*
                  * 以下两个函数调用不能反！！！
@@ -1422,7 +1423,7 @@ impl Realm {
                  */
                 queue.write_buffer(
                     &self.render_res.instance_buffers[&chunk_coord],
-                    offset * std::mem::size_of::<Instance>() as u64,
+                    (offset * std::mem::size_of::<Instance>() as u32) as u64,
                     bytemuck::bytes_of(&instance),
                 );
 
@@ -1449,7 +1450,7 @@ impl Realm {
                 chunk.instance[offset as usize] = instance;
                 queue.write_buffer(
                     &self.render_res.instance_buffers[&chunk_coord],
-                    offset * std::mem::size_of::<Instance>() as u64,
+                    offset as u64 * std::mem::size_of::<Instance>() as u64,
                     bytemuck::bytes_of(&instance),
                 );
             }
@@ -1488,7 +1489,7 @@ impl Realm {
         //);
         queue.write_buffer(
             &self.render_res.instance_buffers[&chunk_coord],
-            (offset) * std::mem::size_of::<Instance>() as u64,
+            offset as u64 * std::mem::size_of::<Instance>() as u64,
             bytemuck::bytes_of(&instance),
         );
     }
