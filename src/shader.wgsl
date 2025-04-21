@@ -58,8 +58,9 @@ var t_diffuse: texture_2d_array<f32>;
 var s_diffuse: sampler;
 
 // 为了符合步长要求 使用结构体
+// 数组大小应该等于BLOCK_NUM * 6
 @group(2) @binding(0)
-var<uniform> block_materials: array<MaterialUniform, 30>;
+var<uniform> block_materials: array<MaterialUniform, 54>;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
