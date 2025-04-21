@@ -9,7 +9,9 @@ use wgpu::{util::DeviceExt, *};
 
 use cgmath::*;
 
+use crate::basic_config::{self, BasicConfig};
 use crate::chunk_generator::{self, ChunkGenerator};
+use crate::{camera, texture};
 
 pub const TEXT_FRAC: f32 = 16.0 / 512.0;
 pub const WF_SIZE: f32 = 0.01;
@@ -733,11 +735,20 @@ pub struct RenderResources {
     pub block_materials_buffer: Buffer,
     pub block_materials_bind_group: BindGroup,
     pub block_materials_bind_group_layout: BindGroupLayout,
+    render_pipeline: RenderPipeline,
+    pub diffuse_bind_group: BindGroup,
+    pub texture_bind_group_layout: BindGroupLayout,
+    pub render_pipeline_layout: PipelineLayout,
 }
 impl RenderResources {
-    fn new(device: &Device, data: &RealmData) -> Self {
+    fn new(
+        basic_config: &BasicConfig,
+        data: &RealmData,
+        camera_bind_group_layout: &BindGroupLayout,
+    ) -> Self {
+        let device = &basic_config.device;
         let block_vertex_buffer = device.create_buffer_init(&util::BufferInitDescriptor {
-            label: Some("block veretx buffer"),
+            label: Some("block vertex buffer"),
             contents: bytemuck::cast_slice(VERTICES),
             usage: BufferUsages::VERTEX,
         });
@@ -807,6 +818,116 @@ impl RenderResources {
             }],
         });
 
+        //以下是创建 render_pipeline 和 buffer
+        let shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("First Shader"),
+            source: ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        });
+
+        //let num_indices = realm::INDICES.len() as u32;
+
+        let diffuse_texture =
+            texture::Texture::load_blocks("res/texture", &basic_config.device, &basic_config.queue)
+                .unwrap();
+
+        let texture_bind_group_layout =
+            basic_config
+                .device
+                .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                    label: Some("Texture bind group layout"),
+                    entries: &[
+                        BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: ShaderStages::FRAGMENT,
+                            ty: BindingType::Texture {
+                                sample_type: TextureSampleType::Float { filterable: true },
+                                view_dimension: TextureViewDimension::D2Array,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: ShaderStages::FRAGMENT,
+                            ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                    ],
+                });
+
+        let diffuse_bind_group =
+            basic_config
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("First diffuse bind group"),
+                    layout: &texture_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                        },
+                    ],
+                });
+
+        let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("First render pipeline layout"),
+            bind_group_layouts: &[
+                &camera_bind_group_layout,
+                &texture_bind_group_layout,
+                &block_materials_bind_group_layout,
+            ],
+            push_constant_ranges: &[],
+        });
+
+        let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("First render pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Vertex::desc(), Instance::desc()],
+                compilation_options: PipelineCompilationOptions::default(),
+            },
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: FrontFace::Cw,
+                cull_mode: Some(Face::Back),
+                unclipped_depth: false,
+                polygon_mode: PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            fragment: Some(FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format: basic_config.config.format,
+                    blend: Some(BlendState::REPLACE),
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: PipelineCompilationOptions::default(),
+            }),
+            multiview: None,
+            cache: None,
+        });
+        //render_pipeline和buffer创建完成
+
         Self {
             block_vertex_buffer,
             block_index_buffer,
@@ -817,7 +938,10 @@ impl RenderResources {
             block_materials_buffer,
             block_materials_bind_group,
             block_materials_bind_group_layout,
-            //wf_vertices,
+            diffuse_bind_group,
+            render_pipeline,
+            texture_bind_group_layout,
+            render_pipeline_layout,
         }
     }
 
@@ -866,11 +990,11 @@ pub struct Realm {
     pre_center_chunk_pos: ChunkCoord,
 }
 impl Realm {
-    pub fn new(device: &Device) -> Self {
+    pub fn new(basic_config: &BasicConfig, camera_bind_group_layout: &BindGroupLayout) -> Self {
         let mut data = RealmData::new();
         data.load_all_instance();
 
-        let render_res = RenderResources::new(device, &data);
+        let render_res = RenderResources::new(basic_config, &data, camera_bind_group_layout);
         let chunk_generator = ChunkGenerator::new(1);
 
         let is_loading = true;
@@ -1328,6 +1452,7 @@ impl Realm {
         }
         None
     }
+
     fn update_adjacent_block(&mut self, abs_coord: Point3<i32>, queue: &Queue) {
         //更新相邻方块
         let x = abs_coord.x;
@@ -1494,6 +1619,7 @@ impl Realm {
         );
     }
 
+    #[allow(unused)]
     pub fn debug_print(&self) {
         println!("chunk data:");
         for x in 0..self.data.chunk_map[&ChunkCoord { x: 0, z: 0 }].offset_top {
@@ -1517,6 +1643,23 @@ impl Realm {
                     );
                 }
             }
+        }
+    }
+
+    pub fn draw_realm(&self, render_pass: &mut RenderPass, camera_bind_group: &BindGroup) {
+        render_pass.set_pipeline(&self.render_res.render_pipeline);
+        render_pass.set_bind_group(0, camera_bind_group, &[]);
+        render_pass.set_bind_group(1, &self.render_res.diffuse_bind_group, &[]);
+        render_pass.set_bind_group(2, &self.render_res.block_materials_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.render_res.block_vertex_buffer.slice(..));
+        render_pass.set_index_buffer(
+            self.render_res.block_index_buffer.slice(..),
+            IndexFormat::Uint16,
+        );
+
+        for (coord, chunk) in self.data.chunk_map.iter() {
+            render_pass.set_vertex_buffer(1, self.render_res.instance_buffers[&coord].slice(..));
+            render_pass.draw_indexed(0..INDICES.len() as _, 0, 0..chunk.offset_top as u32);
         }
     }
 }

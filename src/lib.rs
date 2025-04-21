@@ -49,10 +49,6 @@ impl CameraUniform {
 struct State {
     basic_config: basic_config::BasicConfig,
     window: Arc<Window>,
-    render_pipeline: RenderPipeline,
-    //好像没用？
-    //diffuse_texture: texture::Texture,
-    diffuse_bind_group: BindGroup,
 
     //摄像机相关
     camera: camera::Camera,
@@ -90,9 +86,6 @@ impl State {
             &basic_config.config,
             "Depth texture",
         );
-        let mut realm = realm::Realm::new(&basic_config.device);
-        let reload_start = std::time::Instant::now();
-        realm.reload_all_chunk(&realm.data.center_chunk_pos.clone(), &basic_config.device);
         //let reload_duration = reload_start.elapsed();
         //println!("reload_duration:{:?}", reload_duration);
 
@@ -155,6 +148,10 @@ impl State {
                     ],
                 });
 
+        let mut realm = realm::Realm::new(&basic_config, &camera_bind_group_layout);
+        let reload_start = std::time::Instant::now();
+        realm.reload_all_chunk(&realm.data.center_chunk_pos.clone(), &basic_config.device);
+
         let camera_bind_group = basic_config
             .device
             .create_bind_group(&wgpu::BindGroupDescriptor {
@@ -179,127 +176,6 @@ impl State {
         );
         //摄像机创建完成
 
-        //开始创建diffuse_bind_group
-        //let diffuse_bytes = include_bytes!("../res/tile_map.png");
-        let diffuse_texture =
-            texture::Texture::load_blocks("res/texture", &basic_config.device, &basic_config.queue)
-                .unwrap();
-
-        let texture_bind_group_layout =
-            basic_config
-                .device
-                .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                    label: Some("Texture bind group layout"),
-                    entries: &[
-                        BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: ShaderStages::FRAGMENT,
-                            ty: BindingType::Texture {
-                                sample_type: TextureSampleType::Float { filterable: true },
-                                view_dimension: TextureViewDimension::D2Array,
-                                multisampled: false,
-                            },
-                            count: None,
-                        },
-                        BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: ShaderStages::FRAGMENT,
-                            ty: BindingType::Sampler(SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                    ],
-                });
-
-        let diffuse_bind_group =
-            basic_config
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("First diffuse bind group"),
-                    layout: &texture_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-                        },
-                    ],
-                });
-        //创建diffuse_bind_group完成
-
-        //以下是创建 render_pipeline 和 buffer
-        let shader = basic_config
-            .device
-            .create_shader_module(ShaderModuleDescriptor {
-                label: Some("First Shader"),
-                source: ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-            });
-
-        //let num_indices = realm::INDICES.len() as u32;
-
-        let render_pipeline_layout =
-            basic_config
-                .device
-                .create_pipeline_layout(&PipelineLayoutDescriptor {
-                    label: Some("First render pipeline layout"),
-                    bind_group_layouts: &[
-                        &camera_bind_group_layout,
-                        &texture_bind_group_layout,
-                        &realm.render_res.block_materials_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
-                });
-
-        let render_pipeline =
-            basic_config
-                .device
-                .create_render_pipeline(&RenderPipelineDescriptor {
-                    label: Some("First render pipeline"),
-                    layout: Some(&render_pipeline_layout),
-                    vertex: VertexState {
-                        module: &shader,
-                        entry_point: Some("vs_main"),
-                        buffers: &[realm::Vertex::desc(), realm::Instance::desc()],
-                        compilation_options: PipelineCompilationOptions::default(),
-                    },
-                    primitive: PrimitiveState {
-                        topology: PrimitiveTopology::TriangleList,
-                        strip_index_format: None,
-                        front_face: FrontFace::Cw,
-                        cull_mode: Some(Face::Back),
-                        unclipped_depth: false,
-                        polygon_mode: PolygonMode::Fill,
-                        conservative: false,
-                    },
-                    depth_stencil: Some(wgpu::DepthStencilState {
-                        format: texture::Texture::DEPTH_FORMAT,
-                        depth_write_enabled: true,
-                        depth_compare: wgpu::CompareFunction::Less,
-                        stencil: wgpu::StencilState::default(),
-                        bias: wgpu::DepthBiasState::default(),
-                    }),
-                    multisample: MultisampleState {
-                        count: 1,
-                        mask: !0,
-                        alpha_to_coverage_enabled: false,
-                    },
-                    fragment: Some(FragmentState {
-                        module: &shader,
-                        entry_point: Some("fs_main"),
-                        targets: &[Some(ColorTargetState {
-                            format: basic_config.config.format,
-                            blend: Some(BlendState::REPLACE),
-                            write_mask: ColorWrites::ALL,
-                        })],
-                        compilation_options: PipelineCompilationOptions::default(),
-                    }),
-                    multiview: None,
-                    cache: None,
-                });
-        //render_pipeline和buffer创建完成
-
         //线框
         let wf_shader = basic_config
             .device
@@ -313,7 +189,7 @@ impl State {
                 .device
                 .create_render_pipeline(&RenderPipelineDescriptor {
                     label: Some("Wireframe render pipeline"),
-                    layout: Some(&render_pipeline_layout),
+                    layout: Some(&realm.render_res.render_pipeline_layout),
                     vertex: VertexState {
                         module: &wf_shader,
                         entry_point: Some("vs_main"),
@@ -372,14 +248,11 @@ impl State {
             window.inner_size(),
             &player,
             &realm.render_res.block_materials_bind_group_layout,
-            &texture_bind_group_layout,
+            &realm.render_res.texture_bind_group_layout,
         );
         Self {
             basic_config,
             window,
-            render_pipeline,
-            //diffuse_texture,
-            diffuse_bind_group,
 
             camera,
             projection,
@@ -545,31 +418,14 @@ impl State {
                 timestamp_writes: None,
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
-            render_pass.set_bind_group(2, &self.realm.render_res.block_materials_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.realm.render_res.block_vertex_buffer.slice(..));
-            render_pass.set_index_buffer(
-                self.realm.render_res.block_index_buffer.slice(..),
-                IndexFormat::Uint16,
-            );
-
-            for (coord, chunk) in self.realm.data.chunk_map.iter() {
-                render_pass
-                    .set_vertex_buffer(1, self.realm.render_res.instance_buffers[&coord].slice(..));
-                render_pass.draw_indexed(
-                    0..realm::INDICES.len() as _,
-                    0,
-                    0..chunk.offset_top as u32,
-                );
-            }
+            self.realm
+                .draw_realm(&mut render_pass, &self.camera_bind_group);
 
             //绘制线框
             if self.realm.data.is_wf_visible {
                 render_pass.set_pipeline(&self.wf_render_pipeline);
                 render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-                render_pass.set_bind_group(1, &self.diffuse_bind_group, &[]);
+                render_pass.set_bind_group(1, &self.realm.render_res.diffuse_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, self.realm.render_res.wf_vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
                     self.realm.render_res.wf_index_buffer.slice(..),
@@ -589,7 +445,7 @@ impl State {
             &self.basic_config.queue,
             &mut encoder,
             &view,
-            &self.diffuse_bind_group,
+            &self.realm.render_res.diffuse_bind_group,
             &self.realm.render_res.block_materials_bind_group,
             0.0,
             0.0,
