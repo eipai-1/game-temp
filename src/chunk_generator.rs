@@ -138,7 +138,7 @@ impl ChunkGenerator {
 
                 let height = (perlin.get([absolute_x as f64 / 16.0, absolute_z as f64 / 16.0])
                     * 8.0) as i32
-                    + 64;
+                    + 24;
 
                 let tree_value = perlin.get([
                     (absolute_z + CHUNK_SIZE / 2) as f64 / 4.0,
