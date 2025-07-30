@@ -1,3 +1,6 @@
 /target
-/res
+/res/*
 /data
+!/res/chore
+!/res/texture
+!/res/tile_map.png

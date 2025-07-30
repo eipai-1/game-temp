@@ -177,7 +177,7 @@ pub const WIREFRAME_INDCIES: &[u16] = &[
     8,  11, 27, 8,  27, 24,
 ];
 
-pub const INIT_CHUNK_RAD: i32 = 7;
+pub const INIT_CHUNK_RAD: i32 = 5;
 pub const CHUNK_SIZE: i32 = 16;
 pub const CHUNK_HEIGHT: i32 = 512;
 pub const BLOCK_NUM_PER_CHUNK: usize = (CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT) as usize;
